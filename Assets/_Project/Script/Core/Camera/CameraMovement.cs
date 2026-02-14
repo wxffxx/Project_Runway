@@ -1,5 +1,19 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System.Collections.Generic;
+
+// 定义一个配置方案结构体，用于快速切换参数
+[System.Serializable]
+public struct CameraProfile
+{
+    public string profileName; // 方案名称 (e.g., "Outdoor", "Indoor")
+    public float moveSpeed;
+    public float moveSmoothing;
+    public float rotationSpeed;
+    public float zoomSensitivity;
+    public Vector2 heightLimit;
+    public float collisionRadius; // 碰撞检测半径
+}
 
 public class CameraMovementNewInput : MonoBehaviour
 {
@@ -11,57 +25,62 @@ public class CameraMovementNewInput : MonoBehaviour
     public InputAction orbitActiveAction = new InputAction("OrbitActive", binding: "<Mouse>/middleButton");
     public InputAction lookAction = new InputAction("Look", binding: "<Mouse>/delta");
     public InputAction zoomAction = new InputAction("Zoom", binding: "<Mouse>/scroll/y");
+    public InputAction cancelFollowAction = new InputAction("CancelFollow", binding: "<Keyboard>/escape");
 
-    // --- 2. 参数设置 ---
-    [Header("Movement Settings (移动设置)")]
-    public float moveSpeed = 10.0f;
+    // --- 2. 参数配置系统 ---
+    [Header("Profile System (参数方案)")]
+    public List<CameraProfile> profiles = new List<CameraProfile>();
+    public int defaultProfileIndex = 0;
     
-    [Tooltip("移动惯性：值越大滑行越久。建议 0.1(灵敏) - 0.3(顺滑)")]
-    public float moveSmoothing = 0.2f; // 这里的含义变成了“滑动阻力系数”
+    // 当前使用的运行时参数
+    private CameraProfile currentSettings; 
 
-    [Header("Rotation & Orbit (旋转设置)")]
-    public float rotationSpeed = 80.0f;
+    [Header("General Settings (通用设置)")]
     public float mouseSensitivity = 0.5f;
     public float defaultFocusDistance = 15.0f;
-
-    [Header("Zoom Settings (缩放设置)")]
-    public float zoomSensitivity = 0.05f;
     public float zoomDamping = 5.0f;
-
-    [Header("Bounds (边界限制)")]
     public bool enableBounds = true;
-    public Vector2 heightLimit = new Vector2(1f, 50f);
 
+    [Header("Collision & Following (碰撞与跟随)")]
+    public LayerMask collisionLayers; // 设置为 Ground, Buildings 等层级
+    public float followSmoothTime = 0.1f; // 跟随目标的平滑时间
+    
     // --- 内部状态 ---
     private float currentZoomVelocity = 0.0f;
     private bool isOrbiting = false;
-    private Vector3 lockedFocusPoint;
+    private Vector3 lockedOrbitCenter; // 旋转时的中心点
     
-    // 【修改】移除了 moveVelocitySmoothing (SmoothDamp 专用变量，已不再需要)
+    // 移动相关变量 (保留了你的 Lerp 逻辑)
     private Vector3 currentMoveDir = Vector3.zero; 
+
+    // 跟随系统状态
+    private Transform followTarget;
+    private Vector3 followOffset; // 锁定时的相对偏移量
+    private Vector3 followVelocity; // SmoothDamp 引用变量
 
     private void Awake()
     {
-        // 自动绑定保护逻辑
-        if (moveAction.bindings.Count == 0)
+        InitializeDefaultBindings();
+        
+        // 初始化默认配置方案
+        if (profiles.Count > 0)
         {
-            moveAction.AddCompositeBinding("2DVector")
-                .With("Up", "<Keyboard>/w")
-                .With("Down", "<Keyboard>/s")
-                .With("Left", "<Keyboard>/a")
-                .With("Right", "<Keyboard>/d");
+            ApplyProfile(profiles[defaultProfileIndex]);
         }
-        if (verticalAction.bindings.Count == 0)
+        else
         {
-             verticalAction.AddCompositeBinding("1DAxis")
-                .With("Positive", "<Keyboard>/f")
-                .With("Negative", "<Keyboard>/c");
-        }
-        if (rotateAction.bindings.Count == 0)
-        {
-             rotateAction.AddCompositeBinding("1DAxis")
-                .With("Positive", "<Keyboard>/e")
-                .With("Negative", "<Keyboard>/q");
+            // 如果没有配置方案，创建一个默认的保底
+            CameraProfile fallback = new CameraProfile
+            {
+                profileName = "Default",
+                moveSpeed = 10f,
+                moveSmoothing = 0.2f,
+                rotationSpeed = 80f,
+                zoomSensitivity = 0.05f,
+                heightLimit = new Vector2(1f, 50f),
+                collisionRadius = 0.5f
+            };
+            ApplyProfile(fallback);
         }
     }
 
@@ -73,9 +92,11 @@ public class CameraMovementNewInput : MonoBehaviour
         orbitActiveAction.Enable();
         lookAction.Enable();
         zoomAction.Enable();
+        cancelFollowAction.Enable();
 
         orbitActiveAction.started += OnOrbitStarted;
         orbitActiveAction.canceled += OnOrbitCanceled;
+        cancelFollowAction.performed += _ => ClearFollowTarget();
     }
 
     private void OnDisable()
@@ -86,6 +107,7 @@ public class CameraMovementNewInput : MonoBehaviour
         orbitActiveAction.Disable();
         lookAction.Disable();
         zoomAction.Disable();
+        cancelFollowAction.Disable();
 
         orbitActiveAction.started -= OnOrbitStarted;
         orbitActiveAction.canceled -= OnOrbitCanceled;
@@ -93,7 +115,16 @@ public class CameraMovementNewInput : MonoBehaviour
 
     void Update()
     {
-        HandleMovement();
+        // 如果正在跟随目标，逻辑会有所不同
+        if (followTarget != null)
+        {
+            HandleFollowMovement();
+        }
+        else
+        {
+            HandleManualMovement();
+        }
+
         HandleRotation();
         HandleOrbit();
         HandleZoomInput();
@@ -101,18 +132,76 @@ public class CameraMovementNewInput : MonoBehaviour
 
     void LateUpdate()
     {
-        ApplyZoomPhysics();
+        if (followTarget == null)
+        {
+            ApplyZoomPhysics();
+        }
+        
+        // 先应用边界，再应用碰撞，确保不会卡出边界外但在墙里
         ApplyBounds();
+        ApplyCollisionCorrection(); 
     }
 
-    // --- 【修改】修复了回抽问题的移动逻辑 ---
-    void HandleMovement()
+    // --- 功能模块：参数切换 ---
+    public void ApplyProfile(CameraProfile profile)
     {
-        // 1. 读取输入
+        currentSettings = profile;
+        Debug.Log($"[Camera] Switched to profile: {profile.profileName}");
+    }
+
+    public void ApplyProfile(string profileName)
+    {
+        var p = profiles.Find(x => x.profileName == profileName);
+        if (!string.IsNullOrEmpty(p.profileName))
+        {
+            ApplyProfile(p);
+        }
+    }
+
+    // --- 功能模块：自动跟随 ---
+    public void SetFollowTarget(Transform target)
+    {
+        followTarget = target;
+        // 计算当前相机和目标的偏移量，保持相对位置
+        followOffset = transform.position - target.position;
+        // 如果偏移量太小（相机在目标内部），重置一个默认偏移
+        if (followOffset.sqrMagnitude < 1f)
+        {
+            followOffset = -target.forward * 10f + Vector3.up * 5f;
+        }
+    }
+
+    public void ClearFollowTarget()
+    {
+        followTarget = null;
+        currentMoveDir = Vector3.zero; // 停止跟随时的惯性
+    }
+
+    // --- 核心逻辑：移动 ---
+    
+    // 1. 跟随模式下的移动
+    void HandleFollowMovement()
+    {
+        // 任何手动的位移输入都会打断跟随
+        Vector2 inputRaw = moveAction.ReadValue<Vector2>();
+        if (inputRaw.sqrMagnitude > 0.01f || verticalAction.ReadValue<float>() != 0)
+        {
+            ClearFollowTarget();
+            return;
+        }
+
+        if (followTarget == null) return;
+
+        Vector3 targetPos = followTarget.position + followOffset;
+        transform.position = Vector3.SmoothDamp(transform.position, targetPos, ref followVelocity, followSmoothTime);
+    }
+
+    // 2. 手动模式下的移动 (保留了你修复回抽问题的 Lerp 逻辑)
+    void HandleManualMovement()
+    {
         Vector2 inputRaw = moveAction.ReadValue<Vector2>();
         float vInputRaw = verticalAction.ReadValue<float>();
 
-        // 2. 计算目标方向
         Vector3 forward = transform.forward;
         Vector3 right = transform.right;
         forward.y = 0;
@@ -121,17 +210,10 @@ public class CameraMovementNewInput : MonoBehaviour
         Vector3 targetMoveDir = (forward.normalized * inputRaw.y + right.normalized * inputRaw.x);
         targetMoveDir += Vector3.up * vInputRaw;
 
-        // 3. 【核心修复】改用 Lerp (线性插值) 替代 SmoothDamp
-        // SmoothDamp 像弹簧，会回弹；Lerp 像摩擦力滑行，绝不回弹。
-        
-        // 计算插值速度：moveSmoothing 越小，Lerp 越快 (越灵敏)
-        // 使用 Time.deltaTime 保证帧率无关
-        float lerpSpeed = 1.0f / Mathf.Max(0.001f, moveSmoothing); 
-        
+        // 使用配置方案中的 smoothing
+        float lerpSpeed = 1.0f / Mathf.Max(0.001f, currentSettings.moveSmoothing); 
         currentMoveDir = Vector3.Lerp(currentMoveDir, targetMoveDir, Time.deltaTime * lerpSpeed);
 
-        // 4. 应用移动
-        // 增加一个极小值截断，防止无限趋近于 0 但不归零导致的微小浮动
         if (currentMoveDir.sqrMagnitude < 0.001f && targetMoveDir == Vector3.zero)
         {
             currentMoveDir = Vector3.zero;
@@ -139,18 +221,28 @@ public class CameraMovementNewInput : MonoBehaviour
 
         if (currentMoveDir.sqrMagnitude > 0.0001f)
         {
-            transform.position += currentMoveDir * moveSpeed * Time.deltaTime;
+            // 使用配置方案中的 speed
+            transform.position += currentMoveDir * currentSettings.moveSpeed * Time.deltaTime;
         }
     }
 
+    // --- 核心逻辑：旋转与观察 ---
     void HandleRotation()
     {
         float rInput = rotateAction.ReadValue<float>();
         if (rInput != 0f)
         {
-            Vector3 focus = GetCurrentFocusPoint();
-            float angle = rInput * rotationSpeed * Time.deltaTime;
+            // 如果在跟随模式，围绕目标旋转；否则围绕视线落点旋转
+            Vector3 focus = (followTarget != null) ? followTarget.position : GetCurrentFocusPoint();
+            
+            float angle = rInput * currentSettings.rotationSpeed * Time.deltaTime;
             transform.RotateAround(focus, Vector3.up, angle);
+
+            // 如果在跟随，旋转后需要更新偏移量，否则相机会弹回去
+            if (followTarget != null)
+            {
+                followOffset = transform.position - followTarget.position;
+            }
         }
     }
 
@@ -159,7 +251,12 @@ public class CameraMovementNewInput : MonoBehaviour
         isOrbiting = true;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
-        lockedFocusPoint = GetCurrentFocusPoint();
+        
+        // 确定旋转轴心
+        if (followTarget != null)
+            lockedOrbitCenter = followTarget.position;
+        else
+            lockedOrbitCenter = GetCurrentFocusPoint();
     }
 
     private void OnOrbitCanceled(InputAction.CallbackContext ctx)
@@ -177,17 +274,42 @@ public class CameraMovementNewInput : MonoBehaviour
             float mouseX = mouseDelta.x * mouseSensitivity; 
             float mouseY = mouseDelta.y * mouseSensitivity;
 
-            transform.RotateAround(lockedFocusPoint, Vector3.up, mouseX);
-            transform.RotateAround(lockedFocusPoint, transform.right, -mouseY);
+            // 围绕轴心旋转
+            transform.RotateAround(lockedOrbitCenter, Vector3.up, mouseX);
+            transform.RotateAround(lockedOrbitCenter, transform.right, -mouseY);
+
+            // 修正：确保Z轴水平，防止相机歪斜
+            Vector3 euler = transform.eulerAngles;
+            euler.z = 0;
+            transform.eulerAngles = euler;
+
+            // 如果在跟随模式，轨道旋转需要更新偏移量
+            if (followTarget != null)
+            {
+                followOffset = transform.position - followTarget.position;
+            }
         }
     }
 
+    // --- 核心逻辑：缩放 ---
     void HandleZoomInput()
     {
         float scrollValue = zoomAction.ReadValue<float>();
         if (Mathf.Abs(scrollValue) > 0.01f)
         {
-            currentZoomVelocity += scrollValue * zoomSensitivity;
+            // 如果在跟随模式，直接缩进/拉远偏移量
+            if (followTarget != null)
+            {
+                // 计算当前距离
+                float currentDist = followOffset.magnitude;
+                float targetDist = Mathf.Clamp(currentDist - scrollValue * currentSettings.zoomSensitivity * 10f, 2.0f, 100f);
+                followOffset = followOffset.normalized * targetDist;
+            }
+            else
+            {
+                // 手动模式下保持物理惯性缩放
+                currentZoomVelocity += scrollValue * currentSettings.zoomSensitivity;
+            }
         }
     }
 
@@ -195,26 +317,92 @@ public class CameraMovementNewInput : MonoBehaviour
     {
         if (Mathf.Abs(currentZoomVelocity) > 0.001f)
         {
-            transform.position += transform.forward * currentZoomVelocity * Time.deltaTime;
+            Vector3 proposedMove = transform.forward * currentZoomVelocity * Time.deltaTime;
+            
+            // 简单预判：如果缩放会导致碰撞，就停止缩放
+            if (!Physics.CheckSphere(transform.position + proposedMove, currentSettings.collisionRadius, collisionLayers))
+            {
+                transform.position += proposedMove;
+            }
+            else
+            {
+                currentZoomVelocity = 0; // 撞墙停止
+            }
+            
             currentZoomVelocity = Mathf.Lerp(currentZoomVelocity, 0f, zoomDamping * Time.deltaTime);
         }
     }
 
+    // --- 核心逻辑：限制与碰撞 ---
     void ApplyBounds()
     {
         if (!enableBounds) return;
         Vector3 pos = transform.position;
-        pos.y = Mathf.Clamp(pos.y, heightLimit.x, heightLimit.y);
+        pos.y = Mathf.Clamp(pos.y, currentSettings.heightLimit.x, currentSettings.heightLimit.y);
         transform.position = pos;
     }
 
+    void ApplyCollisionCorrection()
+    {
+        // 使用球形重叠检测当前位置是否在碰撞体内
+        if (Physics.CheckSphere(transform.position, currentSettings.collisionRadius, collisionLayers))
+        {
+            // 如果卡住了，尝试往反方向（通常是上方或后方）推
+            // 这里使用一个简单的逻辑：找到最近的非碰撞点有点复杂，
+            // 简单的做法是：向 Focus Point 的反方向推，或者直接向上推
+            
+            // 1. 获取逃逸向量：从碰撞中心向外
+            Collider[] hits = Physics.OverlapSphere(transform.position, currentSettings.collisionRadius, collisionLayers);
+            if (hits.Length > 0)
+            {
+                Collider col = hits[0];
+                // 获取最近点
+                Vector3 closestPoint = col.ClosestPoint(transform.position);
+                Vector3 pushDir = (transform.position - closestPoint).normalized;
+                
+                // 防止 pushDir 为 0 (完全重合)
+                if (pushDir == Vector3.zero) pushDir = Vector3.up;
+
+                // 强制推离
+                float pushDist = currentSettings.collisionRadius - Vector3.Distance(transform.position, closestPoint);
+                transform.position += pushDir * (pushDist + 0.05f); // 额外增加一点缓冲
+            }
+        }
+    }
+
+    // --- 辅助函数 ---
     private Vector3 GetCurrentFocusPoint()
     {
         Ray ray = new Ray(transform.position, transform.forward);
-        if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity))
+        // 使用 collisionLayers 确保视点落在合法的物体上，而不是穿过墙壁看外面
+        if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, collisionLayers))
         {
             return hit.point;
         }
         return transform.position + transform.forward * defaultFocusDistance;
+    }
+
+    private void InitializeDefaultBindings()
+    {
+        if (moveAction.bindings.Count == 0)
+        {
+            moveAction.AddCompositeBinding("2DVector")
+                .With("Up", "<Keyboard>/w")
+                .With("Down", "<Keyboard>/s")
+                .With("Left", "<Keyboard>/a")
+                .With("Right", "<Keyboard>/d");
+        }
+        if (verticalAction.bindings.Count == 0)
+        {
+            verticalAction.AddCompositeBinding("1DAxis")
+                .With("Positive", "<Keyboard>/f")
+                .With("Negative", "<Keyboard>/c");
+        }
+        if (rotateAction.bindings.Count == 0)
+        {
+            rotateAction.AddCompositeBinding("1DAxis")
+                .With("Positive", "<Keyboard>/e")
+                .With("Negative", "<Keyboard>/q");
+        }
     }
 }
