@@ -1,389 +1,57 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
-using System.Collections.Generic;
 
-// 定义一个配置方案结构体，用于快速切换参数
-[System.Serializable]
-public struct CameraProfile
+public class CameraMovement : MonoBehaviour
 {
-    public string profileName; // 方案名称 (e.g., "Outdoor", "Indoor")
-    public float moveSpeed;
-    public float moveSmoothing;
-    public float rotationSpeed;
-    public float zoomSensitivity;
-    public Vector2 heightLimit;
-    public float collisionRadius; // 碰撞检测半径
-}
+    [Header("Movement (移动)")]
+    public float moveSpeed = 10.0f; // WASD 和 FC 的移动速度
+    [Tooltip("新输入系统下模拟旧版 Axis 的加速度和减速度 (Sensitivity / Gravity)")]
+    public float moveAccel = 10f;
+    public float moveDecel = 10f;
 
-public class CameraMovementNewInput : MonoBehaviour
-{
-    // --- 1. 输入动作定义 ---
+    [Header("Rotation & Orbit (旋转与环绕)")]
+    public float rotationSpeed = 80.0f; // QE 的环绕速度
+    public float mouseSensitivity = 0.5f; // 鼠标灵敏度 (用于环绕)
+
+    [Header("Mouse Controls (鼠标控制)")]
+    [Tooltip("滚轮缩放的“灵敏度”或“力度” (新输入系统数值较大，默认设为 0.01 左右较合适)")]
+    public float zoomSensitivity = 0.01f;
+    [Tooltip("缩放速度的“衰减”速度。值越大，停止越快。")]
+    public float zoomDamping = 5.0f;
+
+    [Header("Default Focus Distance (默认焦点距离)")]
+    [Tooltip("当射线未碰到任何物体时，环绕的默认焦点距离")]
+    public float defaultFocusDistance = 15.0f;
+
+    [Header("Movement Bounds (移动范围限制)")]
+    public bool clampY = true;
+    public float minY = 1f;
+    public float maxY = 50f;
+    public bool clampX = false;
+    public float minX = -100f;
+    public float maxX = 100f;
+    public bool clampZ = false;
+    public float minZ = -100f;
+    public float maxZ = 100f;
+
     [Header("Input Actions (输入绑定)")]
-    public InputAction moveAction = new InputAction("Move", binding: "<Gamepad>/leftStick");
+    public InputAction moveAction = new InputAction("Move");
     public InputAction verticalAction = new InputAction("Vertical");
     public InputAction rotateAction = new InputAction("Rotate");
-    public InputAction orbitActiveAction = new InputAction("OrbitActive", binding: "<Mouse>/middleButton");
+    public InputAction orbitBtnAction = new InputAction("OrbitBtn", binding: "<Mouse>/middleButton");
     public InputAction lookAction = new InputAction("Look", binding: "<Mouse>/delta");
     public InputAction zoomAction = new InputAction("Zoom", binding: "<Mouse>/scroll/y");
-    public InputAction cancelFollowAction = new InputAction("CancelFollow", binding: "<Keyboard>/escape");
 
-    // --- 2. 参数配置系统 ---
-    [Header("Profile System (参数方案)")]
-    public List<CameraProfile> profiles = new List<CameraProfile>();
-    public int defaultProfileIndex = 0;
-    
-    // 当前使用的运行时参数
-    private CameraProfile currentSettings; 
-
-    [Header("General Settings (通用设置)")]
-    public float mouseSensitivity = 0.5f;
-    public float defaultFocusDistance = 15.0f;
-    public float zoomDamping = 5.0f;
-    public bool enableBounds = true;
-
-    [Header("Collision & Following (碰撞与跟随)")]
-    public LayerMask collisionLayers; // 设置为 Ground, Buildings 等层级
-    public float followSmoothTime = 0.1f; // 跟随目标的平滑时间
-    
-    // --- 内部状态 ---
-    private float currentZoomVelocity = 0.0f;
+    // 内部变量
+    private float zoomVelocity = 0.0f; 
+    private Vector3 currentInput = Vector3.zero; // 用于追踪模拟的旧版输入轴值
+    private Vector3 currentMoveVelocity = Vector3.zero;
+    private Vector3 smoothedMoveDir = Vector3.zero;
     private bool isOrbiting = false;
-    private Vector3 lockedOrbitCenter; // 旋转时的中心点
-    
-    // 移动相关变量 (保留了你的 Lerp 逻辑)
-    private Vector3 currentMoveDir = Vector3.zero; 
-
-    // 跟随系统状态
-    private Transform followTarget;
-    private Vector3 followOffset; // 锁定时的相对偏移量
-    private Vector3 followVelocity; // SmoothDamp 引用变量
 
     private void Awake()
     {
-        InitializeDefaultBindings();
-        
-        // 初始化默认配置方案
-        if (profiles.Count > 0)
-        {
-            ApplyProfile(profiles[defaultProfileIndex]);
-        }
-        else
-        {
-            // 如果没有配置方案，创建一个默认的保底
-            CameraProfile fallback = new CameraProfile
-            {
-                profileName = "Default",
-                moveSpeed = 10f,
-                moveSmoothing = 0.2f,
-                rotationSpeed = 80f,
-                zoomSensitivity = 0.05f,
-                heightLimit = new Vector2(1f, 50f),
-                collisionRadius = 0.5f
-            };
-            ApplyProfile(fallback);
-        }
-    }
-
-    private void OnEnable()
-    {
-        moveAction.Enable();
-        verticalAction.Enable();
-        rotateAction.Enable();
-        orbitActiveAction.Enable();
-        lookAction.Enable();
-        zoomAction.Enable();
-        cancelFollowAction.Enable();
-
-        orbitActiveAction.started += OnOrbitStarted;
-        orbitActiveAction.canceled += OnOrbitCanceled;
-        cancelFollowAction.performed += _ => ClearFollowTarget();
-    }
-
-    private void OnDisable()
-    {
-        moveAction.Disable();
-        verticalAction.Disable();
-        rotateAction.Disable();
-        orbitActiveAction.Disable();
-        lookAction.Disable();
-        zoomAction.Disable();
-        cancelFollowAction.Disable();
-
-        orbitActiveAction.started -= OnOrbitStarted;
-        orbitActiveAction.canceled -= OnOrbitCanceled;
-    }
-
-    void Update()
-    {
-        // 如果正在跟随目标，逻辑会有所不同
-        if (followTarget != null)
-        {
-            HandleFollowMovement();
-        }
-        else
-        {
-            HandleManualMovement();
-        }
-
-        HandleRotation();
-        HandleOrbit();
-        HandleZoomInput();
-    }
-
-    void LateUpdate()
-    {
-        if (followTarget == null)
-        {
-            ApplyZoomPhysics();
-        }
-        
-        // 先应用边界，再应用碰撞，确保不会卡出边界外但在墙里
-        ApplyBounds();
-        ApplyCollisionCorrection(); 
-    }
-
-    // --- 功能模块：参数切换 ---
-    public void ApplyProfile(CameraProfile profile)
-    {
-        currentSettings = profile;
-        Debug.Log($"[Camera] Switched to profile: {profile.profileName}");
-    }
-
-    public void ApplyProfile(string profileName)
-    {
-        var p = profiles.Find(x => x.profileName == profileName);
-        if (!string.IsNullOrEmpty(p.profileName))
-        {
-            ApplyProfile(p);
-        }
-    }
-
-    // --- 功能模块：自动跟随 ---
-    public void SetFollowTarget(Transform target)
-    {
-        followTarget = target;
-        // 计算当前相机和目标的偏移量，保持相对位置
-        followOffset = transform.position - target.position;
-        // 如果偏移量太小（相机在目标内部），重置一个默认偏移
-        if (followOffset.sqrMagnitude < 1f)
-        {
-            followOffset = -target.forward * 10f + Vector3.up * 5f;
-        }
-    }
-
-    public void ClearFollowTarget()
-    {
-        followTarget = null;
-        currentMoveDir = Vector3.zero; // 停止跟随时的惯性
-    }
-
-    // --- 核心逻辑：移动 ---
-    
-    // 1. 跟随模式下的移动
-    void HandleFollowMovement()
-    {
-        // 任何手动的位移输入都会打断跟随
-        Vector2 inputRaw = moveAction.ReadValue<Vector2>();
-        if (inputRaw.sqrMagnitude > 0.01f || verticalAction.ReadValue<float>() != 0)
-        {
-            ClearFollowTarget();
-            return;
-        }
-
-        if (followTarget == null) return;
-
-        Vector3 targetPos = followTarget.position + followOffset;
-        transform.position = Vector3.SmoothDamp(transform.position, targetPos, ref followVelocity, followSmoothTime);
-    }
-
-    // 2. 手动模式下的移动 (保留了你修复回抽问题的 Lerp 逻辑)
-    void HandleManualMovement()
-    {
-        Vector2 inputRaw = moveAction.ReadValue<Vector2>();
-        float vInputRaw = verticalAction.ReadValue<float>();
-
-        Vector3 forward = transform.forward;
-        Vector3 right = transform.right;
-        forward.y = 0;
-        right.y = 0;
-        
-        Vector3 targetMoveDir = (forward.normalized * inputRaw.y + right.normalized * inputRaw.x);
-        targetMoveDir += Vector3.up * vInputRaw;
-
-        // 使用配置方案中的 smoothing
-        float lerpSpeed = 1.0f / Mathf.Max(0.001f, currentSettings.moveSmoothing); 
-        currentMoveDir = Vector3.Lerp(currentMoveDir, targetMoveDir, Time.deltaTime * lerpSpeed);
-
-        if (currentMoveDir.sqrMagnitude < 0.001f && targetMoveDir == Vector3.zero)
-        {
-            currentMoveDir = Vector3.zero;
-        }
-
-        if (currentMoveDir.sqrMagnitude > 0.0001f)
-        {
-            // 使用配置方案中的 speed
-            transform.position += currentMoveDir * currentSettings.moveSpeed * Time.deltaTime;
-        }
-    }
-
-    // --- 核心逻辑：旋转与观察 ---
-    void HandleRotation()
-    {
-        float rInput = rotateAction.ReadValue<float>();
-        if (rInput != 0f)
-        {
-            // 如果在跟随模式，围绕目标旋转；否则围绕视线落点旋转
-            Vector3 focus = (followTarget != null) ? followTarget.position : GetCurrentFocusPoint();
-            
-            float angle = rInput * currentSettings.rotationSpeed * Time.deltaTime;
-            transform.RotateAround(focus, Vector3.up, angle);
-
-            // 如果在跟随，旋转后需要更新偏移量，否则相机会弹回去
-            if (followTarget != null)
-            {
-                followOffset = transform.position - followTarget.position;
-            }
-        }
-    }
-
-    private void OnOrbitStarted(InputAction.CallbackContext ctx)
-    {
-        isOrbiting = true;
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
-        
-        // 确定旋转轴心
-        if (followTarget != null)
-            lockedOrbitCenter = followTarget.position;
-        else
-            lockedOrbitCenter = GetCurrentFocusPoint();
-    }
-
-    private void OnOrbitCanceled(InputAction.CallbackContext ctx)
-    {
-        isOrbiting = false;
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
-    }
-
-    void HandleOrbit()
-    {
-        if (isOrbiting)
-        {
-            Vector2 mouseDelta = lookAction.ReadValue<Vector2>();
-            float mouseX = mouseDelta.x * mouseSensitivity; 
-            float mouseY = mouseDelta.y * mouseSensitivity;
-
-            // 围绕轴心旋转
-            transform.RotateAround(lockedOrbitCenter, Vector3.up, mouseX);
-            transform.RotateAround(lockedOrbitCenter, transform.right, -mouseY);
-
-            // 修正：确保Z轴水平，防止相机歪斜
-            Vector3 euler = transform.eulerAngles;
-            euler.z = 0;
-            transform.eulerAngles = euler;
-
-            // 如果在跟随模式，轨道旋转需要更新偏移量
-            if (followTarget != null)
-            {
-                followOffset = transform.position - followTarget.position;
-            }
-        }
-    }
-
-    // --- 核心逻辑：缩放 ---
-    void HandleZoomInput()
-    {
-        float scrollValue = zoomAction.ReadValue<float>();
-        if (Mathf.Abs(scrollValue) > 0.01f)
-        {
-            // 如果在跟随模式，直接缩进/拉远偏移量
-            if (followTarget != null)
-            {
-                // 计算当前距离
-                float currentDist = followOffset.magnitude;
-                float targetDist = Mathf.Clamp(currentDist - scrollValue * currentSettings.zoomSensitivity * 10f, 2.0f, 100f);
-                followOffset = followOffset.normalized * targetDist;
-            }
-            else
-            {
-                // 手动模式下保持物理惯性缩放
-                currentZoomVelocity += scrollValue * currentSettings.zoomSensitivity;
-            }
-        }
-    }
-
-    void ApplyZoomPhysics()
-    {
-        if (Mathf.Abs(currentZoomVelocity) > 0.001f)
-        {
-            Vector3 proposedMove = transform.forward * currentZoomVelocity * Time.deltaTime;
-            
-            // 简单预判：如果缩放会导致碰撞，就停止缩放
-            if (!Physics.CheckSphere(transform.position + proposedMove, currentSettings.collisionRadius, collisionLayers))
-            {
-                transform.position += proposedMove;
-            }
-            else
-            {
-                currentZoomVelocity = 0; // 撞墙停止
-            }
-            
-            currentZoomVelocity = Mathf.Lerp(currentZoomVelocity, 0f, zoomDamping * Time.deltaTime);
-        }
-    }
-
-    // --- 核心逻辑：限制与碰撞 ---
-    void ApplyBounds()
-    {
-        if (!enableBounds) return;
-        Vector3 pos = transform.position;
-        pos.y = Mathf.Clamp(pos.y, currentSettings.heightLimit.x, currentSettings.heightLimit.y);
-        transform.position = pos;
-    }
-
-    void ApplyCollisionCorrection()
-    {
-        // 使用球形重叠检测当前位置是否在碰撞体内
-        if (Physics.CheckSphere(transform.position, currentSettings.collisionRadius, collisionLayers))
-        {
-            // 如果卡住了，尝试往反方向（通常是上方或后方）推
-            // 这里使用一个简单的逻辑：找到最近的非碰撞点有点复杂，
-            // 简单的做法是：向 Focus Point 的反方向推，或者直接向上推
-            
-            // 1. 获取逃逸向量：从碰撞中心向外
-            Collider[] hits = Physics.OverlapSphere(transform.position, currentSettings.collisionRadius, collisionLayers);
-            if (hits.Length > 0)
-            {
-                Collider col = hits[0];
-                // 获取最近点
-                Vector3 closestPoint = col.ClosestPoint(transform.position);
-                Vector3 pushDir = (transform.position - closestPoint).normalized;
-                
-                // 防止 pushDir 为 0 (完全重合)
-                if (pushDir == Vector3.zero) pushDir = Vector3.up;
-
-                // 强制推离
-                float pushDist = currentSettings.collisionRadius - Vector3.Distance(transform.position, closestPoint);
-                transform.position += pushDir * (pushDist + 0.05f); // 额外增加一点缓冲
-            }
-        }
-    }
-
-    // --- 辅助函数 ---
-    private Vector3 GetCurrentFocusPoint()
-    {
-        Ray ray = new Ray(transform.position, transform.forward);
-        // 使用 collisionLayers 确保视点落在合法的物体上，而不是穿过墙壁看外面
-        if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, collisionLayers))
-        {
-            return hit.point;
-        }
-        return transform.position + transform.forward * defaultFocusDistance;
-    }
-
-    private void InitializeDefaultBindings()
-    {
+        // 自动设置默认的按键绑定，防止在面板没配置相关 Asset 时动不了
         if (moveAction.bindings.Count == 0)
         {
             moveAction.AddCompositeBinding("2DVector")
@@ -403,6 +71,209 @@ public class CameraMovementNewInput : MonoBehaviour
             rotateAction.AddCompositeBinding("1DAxis")
                 .With("Positive", "<Keyboard>/e")
                 .With("Negative", "<Keyboard>/q");
+        }
+    }
+
+    private void OnEnable()
+    {
+        moveAction.Enable();
+        verticalAction.Enable();
+        rotateAction.Enable();
+        orbitBtnAction.Enable();
+        lookAction.Enable();
+        zoomAction.Enable();
+
+        orbitBtnAction.started += OnOrbitStarted;
+        orbitBtnAction.canceled += OnOrbitCanceled;
+    }
+
+    private void OnDisable()
+    {
+        moveAction.Disable();
+        verticalAction.Disable();
+        rotateAction.Disable();
+        orbitBtnAction.Disable();
+        lookAction.Disable();
+        zoomAction.Disable();
+
+        orbitBtnAction.started -= OnOrbitStarted;
+        orbitBtnAction.canceled -= OnOrbitCanceled;
+    }
+
+    private void OnOrbitStarted(InputAction.CallbackContext ctx)
+    {
+        isOrbiting = true;
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    private void OnOrbitCanceled(InputAction.CallbackContext ctx)
+    {
+        isOrbiting = false;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
+    private void Update()
+    {
+        // 如果游戏暂停，直接返回，不处理任何输入
+        if (Time.timeScale == 0f) 
+        {
+            // 如果在按住中键时暂停，清理一下环绕状态和鼠标锁定
+            if (isOrbiting)
+            {
+                isOrbiting = false;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+            return;
+        }
+
+        // 将输入采集与核心数值计算放在 Update 保证响应极速，不卡顿
+        HandleMovementInput();
+        HandleRotationInput();
+        HandleOrbitInput();
+        HandleZoomInput();
+    }
+
+    private void LateUpdate()
+    {
+        // 如果游戏暂停，不应用任何物理移动或缩放缓动
+        if (Time.timeScale == 0f) return;
+
+        // 1. 应用键盘移动 (基于模拟GetAxis的值)
+        if (smoothedMoveDir.sqrMagnitude > 0.0001f)
+        {
+            transform.position += smoothedMoveDir * moveSpeed * Time.deltaTime;
+        }
+
+        // 2. 应用鼠标滚轮滑动平滑 (Damped Zoom)
+        if (Mathf.Abs(zoomVelocity) > 0.001f)
+        {
+            float moveThisFrame = zoomVelocity * Time.deltaTime;
+            transform.position += transform.forward * moveThisFrame;
+            zoomVelocity = Mathf.Lerp(zoomVelocity, 0f, zoomDamping * Time.deltaTime);
+        }
+        else
+        {
+            zoomVelocity = 0f;
+        }
+
+        // 3. 应用位置限制 (Clamping)
+        ApplyBounds();
+    }
+
+    private void HandleMovementInput()
+    {
+        // --- WASD 水平移动与 FC 垂直升降 ---
+        Vector2 rawMove2D = moveAction.ReadValue<Vector2>();
+        float rawMoveV = verticalAction.ReadValue<float>();
+
+        // 模拟旧版 Input.GetAxis 的“回弹”和“死区”
+        // 旧版输入系统中，当松开按键时，值会根据 Gravity 快速归零。
+        // 使用 SmoothDamp 会导致向量在接近目标速度 0 时缓慢滑行或过冲，也就是您说的“停下来的瞬间回弹/卡顿(果冻感)”。
+        
+        // 我们改为直接对输入轴进行 Lerp 逼近，如果用户没有输入，则快速阻尼到 0
+        float accelRate = moveAccel; // 相当于旧版的 Sensitivity
+        float decelRate = moveDecel; // 相当于旧版的 Gravity
+
+        // X轴平滑
+        if (Mathf.Abs(rawMove2D.x) > 0.1f)
+            currentInput.x = Mathf.MoveTowards(currentInput.x, rawMove2D.x, accelRate * Time.deltaTime);
+        else
+            currentInput.x = Mathf.MoveTowards(currentInput.x, 0f, decelRate * Time.deltaTime);
+
+        // Y轴(前后)平滑
+        if (Mathf.Abs(rawMove2D.y) > 0.1f)
+            currentInput.y = Mathf.MoveTowards(currentInput.y, rawMove2D.y, accelRate * Time.deltaTime);
+        else
+            currentInput.y = Mathf.MoveTowards(currentInput.y, 0f, decelRate * Time.deltaTime);
+
+        // Z轴(上下FC)平滑
+        if (Mathf.Abs(rawMoveV) > 0.1f)
+            currentInput.z = Mathf.MoveTowards(currentInput.z, rawMoveV, accelRate * Time.deltaTime);
+        else
+            currentInput.z = Mathf.MoveTowards(currentInput.z, 0f, decelRate * Time.deltaTime);
+
+
+        Vector3 camForward = transform.forward;
+        Vector3 camRight = transform.right;
+        camForward.y = 0;
+        camRight.y = 0;
+        camForward.Normalize();
+        camRight.Normalize();
+
+        // 结合相机方向计算最终移动向量
+        smoothedMoveDir = (camForward * currentInput.y + camRight * currentInput.x) + (Vector3.up * currentInput.z);
+    }
+
+    private void HandleRotationInput()
+    {
+        // --- QE 左右环绕 (基于焦点) ---
+        float rotateInput = rotateAction.ReadValue<float>();
+        if (rotateInput != 0f)
+        {
+            Vector3 focusPoint = GetFocusPoint();
+            float angle = rotateInput * rotationSpeed * Time.deltaTime;
+            transform.RotateAround(focusPoint, Vector3.up, angle);
+        }
+    }
+
+    private void HandleOrbitInput()
+    {
+        // --- 鼠标中键 - 环绕视角 ---
+        if (isOrbiting)
+        {
+            Vector3 focusPoint = GetFocusPoint();
+            // 在新输入系统中，鼠标 delta 是按帧度量的真实像素移动量，无需再乘 Time.deltaTime
+            Vector2 lookInput = lookAction.ReadValue<Vector2>();
+            float mouseX = lookInput.x * mouseSensitivity;
+            float mouseY = lookInput.y * mouseSensitivity;
+
+            // 左右环绕 (Yaw) - 绕着世界Y轴
+            transform.RotateAround(focusPoint, Vector3.up, mouseX);
+            
+            // 上下环绕 (Pitch) - 绕着摄像机本地的X轴 (使用 -mouseY 反转Y轴)
+            transform.RotateAround(focusPoint, transform.right, -mouseY);
+
+            // 修正Z轴，防止因为欧拉角计算误差导致相机倾斜
+            Vector3 euler = transform.eulerAngles;
+            euler.z = 0f;
+            transform.eulerAngles = euler;
+        }
+    }
+
+    private void HandleZoomInput()
+    {
+        // --- 鼠标滚轮缩放采集 ---
+        float scroll = zoomAction.ReadValue<float>();
+        if (scroll != 0f)
+        {
+            zoomVelocity += scroll * zoomSensitivity;
+        }
+    }
+
+    private void ApplyBounds()
+    {
+        Vector3 currentPos = transform.position;
+        if (clampY) currentPos.y = Mathf.Clamp(currentPos.y, minY, maxY);
+        if (clampX) currentPos.x = Mathf.Clamp(currentPos.x, minX, maxX);
+        if (clampZ) currentPos.z = Mathf.Clamp(currentPos.z, minZ, maxZ);
+        transform.position = currentPos;
+    }
+
+    private Vector3 GetFocusPoint()
+    {
+        RaycastHit hit;
+        if (Physics.Raycast(transform.position, transform.forward, out hit, Mathf.Infinity))
+        {
+            // 1. 射线碰到了物体：使用碰撞点作为旋转中心
+            return hit.point;
+        }
+        else
+        {
+            // 2. 射线未碰到物体 (例如看向天空)：由于默认距离在摄像机前方创建一个“虚拟”旋转中心
+            return transform.position + (transform.forward * defaultFocusDistance);
         }
     }
 }
