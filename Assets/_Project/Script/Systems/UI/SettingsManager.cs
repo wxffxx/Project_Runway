@@ -1,17 +1,18 @@
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro; // 使用 TextMeshPro
+using TMPro;
 using System.Collections.Generic;
+using UnityEngine.InputSystem;
 
 public class SettingsManager : MonoBehaviour
 {
-    [Header("标签页按钮 (Tabs)")]
+    [Header("--- 标签页按钮 (Tabs) ---")]
     public Button tabDisplayBtn;
     public Button tabQualityBtn;
     public Button tabControlsBtn;
     public Button tabGameBtn;
 
-    [Header("子面板 (Panels)")]
+    [Header("--- 子面板 (Panels) ---")]
     public GameObject displayPanel;
     public GameObject qualityPanel;
     public GameObject controlsPanel;
@@ -19,255 +20,289 @@ public class SettingsManager : MonoBehaviour
 
     [Header("--- 显示设置 (Display) UI组件 ---")]
     public TMP_Dropdown resolutionDropdown;
-    public TMP_Dropdown framerateDropdown; // 新增：帧率下拉框
-    public TMP_Dropdown windowModeDropdown; // 新增：窗口模式下拉框
+    public TMP_Dropdown windowModeDropdown;
+    public TMP_Dropdown framerateDropdown;
 
     [Header("--- 控制设置 (Controls) UI组件 ---")]
     public Slider mouseSensitivitySlider;
-    public TMP_Text mouseSensitivityValueText; 
+    public TMP_Text mouseSensitivityValueText;
     public Toggle invertYToggle;
+
+    [Header("--- 按键绑定 (Keybinds) 动态生成组件 ---")]
+    public Transform keybindsContentParent; // Scroll View 的 Content 节点
+    public GameObject keybindRowPrefab;     // 我们刚才写的 KeybindRow 预制体
 
     [Header("--- 游戏设置 (Game) UI组件 ---")]
     public Toggle showFPSToggle;
 
-    // 内部数据缓存：固定的目标分辨率
-    private readonly Vector2Int[] targetResolutions = new Vector2Int[]
+    // 核心数据缓存
+    private readonly Vector2Int[] resolutions = new Vector2Int[]
     {
-        new Vector2Int(1280, 720),  // 720p
-        new Vector2Int(1920, 1080), // 1080p
-        new Vector2Int(2560, 1440), // 2K
-        new Vector2Int(3840, 2160)  // 4K
+        new Vector2Int(1280, 720),
+        new Vector2Int(1920, 1080),
+        new Vector2Int(2560, 1440),
+        new Vector2Int(3840, 2160)
     };
-
-    // 固定的目标帧率选项
-    private readonly int[] targetFramerates = new int[] { 30, 60, 120, 144, -1 }; 
+    private readonly int[] framerates = new int[] { 30, 60, 120, 144, -1 };
 
     private CameraMovement cameraMovement;
-    private FPSCounter fpsCounterObj;
+    private FPSCounter fpsCounter;
+
+    private void Awake()
+    {
+        cameraMovement = FindFirstObjectByType<CameraMovement>();
+        fpsCounter = FindFirstObjectByType<FPSCounter>();
+    }
 
     private void Start()
     {
-        cameraMovement = FindObjectOfType<CameraMovement>();
-        fpsCounterObj = FindObjectOfType<FPSCounter>(); // 寻找场景中的 FPS 脚本
+        // 1. 游戏启动一瞬间：不问缘由直接强制读取存档应用底层画面 (避免任何 UI 坑)
+        ApplyStartupDisplaySettings();
 
-        SetupTabs();
-        InitDisplaySettings();
-        InitControlSettings();
-        InitGameSettings(); // 新增：初始化游戏设置页
+        // 2. 绑定页面切换按钮
+        if (tabDisplayBtn) tabDisplayBtn.onClick.AddListener(() => SwitchTab(displayPanel));
+        if (tabQualityBtn) tabQualityBtn.onClick.AddListener(() => SwitchTab(qualityPanel));
+        if (tabControlsBtn) tabControlsBtn.onClick.AddListener(() => SwitchTab(controlsPanel));
+        if (tabGameBtn) tabGameBtn.onClick.AddListener(() => SwitchTab(gamePanel));
 
-        OpenTab(displayPanel);
-    }
+        // 3. 读取本地保存的用户自定义按键
+        LoadAllKeybindOverrides();
 
-    private void SetupTabs()
-    {
-        if (tabDisplayBtn != null) tabDisplayBtn.onClick.AddListener(() => OpenTab(displayPanel));
-        if (tabQualityBtn != null) tabQualityBtn.onClick.AddListener(() => OpenTab(qualityPanel));
-        if (tabControlsBtn != null) tabControlsBtn.onClick.AddListener(() => OpenTab(controlsPanel));
-        if (tabGameBtn != null) tabGameBtn.onClick.AddListener(() => OpenTab(gamePanel));
-    }
-
-    private void OpenTab(GameObject targetPanel)
-    {
-        if (displayPanel != null) displayPanel.SetActive(false);
-        if (qualityPanel != null) qualityPanel.SetActive(false);
-        if (controlsPanel != null) controlsPanel.SetActive(false);
-        if (gamePanel != null) gamePanel.SetActive(false);
-
-        if (targetPanel != null) targetPanel.SetActive(true);
-    }
-
-    // ==========================================
-    // 1. 显示设置 (Display Settings)
-    // ==========================================
-    private void InitDisplaySettings()
-    {
-        // A. 窗口模式设置 (独占全屏、无边框、窗口化)
-        if (windowModeDropdown != null)
-        {
-            try {
-                windowModeDropdown.ClearOptions();
-                List<string> modeOptions = new List<string>()
-                {
-                    "独占全屏 (Exclusive)",
-                    "无边框全屏 (Borderless)",
-                    "窗口化 (Windowed)"
-                };
-                windowModeDropdown.AddOptions(modeOptions);
-
-                int savedModeIndex = PlayerPrefs.GetInt("WindowModeIndex", 2); // 默认窗口化(2)
-                windowModeDropdown.value = savedModeIndex;
-                
-                SetWindowMode(savedModeIndex);
-                windowModeDropdown.onValueChanged.AddListener(SetWindowMode);
-            } catch (System.Exception e) { Debug.LogError("Window Mode Init Error: " + e.Message); }
-        }
-
-        // B. 自定义分辨率设置
-        if (resolutionDropdown != null)
-        {
-            try {
-                resolutionDropdown.ClearOptions();
-                List<string> options = new List<string>()
-                {
-                    "1280 x 720 (720p)",
-                    "1920 x 1080 (1080p)",
-                    "2560 x 1440 (2K)",
-                    "3840 x 2160 (4K)"
-                };
-                resolutionDropdown.AddOptions(options);
-
-                int savedResIndex = PlayerPrefs.GetInt("ResolutionIndex", 1);
-                resolutionDropdown.value = savedResIndex;
-
-                SetResolution(savedResIndex);
-                resolutionDropdown.onValueChanged.AddListener(SetResolution);
-            } catch (System.Exception e) { Debug.LogError("Resolution Init Error: " + e.Message); }
-        }
-
-        // C. 帧率 (FPS) 设置
-        if (framerateDropdown != null)
-        {
-            try {
-                framerateDropdown.ClearOptions();
-                List<string> fpsOptions = new List<string>()
-                {
-                    "30 FPS",
-                    "60 FPS",
-                    "120 FPS",
-                    "144 FPS",
-                    "Unlimited"
-                };
-                framerateDropdown.AddOptions(fpsOptions);
-
-                int savedFpsIndex = PlayerPrefs.GetInt("FramerateIndex", 1);
-                framerateDropdown.value = savedFpsIndex;
-
-                SetTargetFramerate(savedFpsIndex);
-                framerateDropdown.onValueChanged.AddListener(SetTargetFramerate);
-            } catch (System.Exception e) { Debug.LogError("FPS Init Error: " + e.Message); }
-        }
-    }
-
-    public void SetWindowMode(int index)
-    {
-        FullScreenMode mode = FullScreenMode.ExclusiveFullScreen;
-        if (index == 1) mode = FullScreenMode.FullScreenWindow;
-        else if (index == 2) mode = FullScreenMode.Windowed;
-
-        PlayerPrefs.SetInt("WindowModeIndex", index);
-        PlayerPrefs.Save();
-
-        // 重新应用分辨率使其在此模式下生效
-        int savedResIndex = PlayerPrefs.GetInt("ResolutionIndex", 1);
-        SetResolution(savedResIndex); 
-    }
-
-    public void SetResolution(int index)
-    {
-        Vector2Int res = targetResolutions[index];
+        // 4. 悄悄初始化 UI 的文字和选项 (且绝不引发改变事件)
+        InitUI();
         
-        int modeIndex = PlayerPrefs.GetInt("WindowModeIndex", 2); // 默认窗口化(2)
-        FullScreenMode mode = FullScreenMode.ExclusiveFullScreen;
-        if (modeIndex == 1) mode = FullScreenMode.FullScreenWindow;
-        else if (modeIndex == 2) mode = FullScreenMode.Windowed;
+        // 5. 动态生成按键绑定的 UI 列表
+        InitKeybindsUI();
 
-        // 强制使用对应的模式
+        // 4. 重置状态，默认打开显示面板
+        SwitchTab(displayPanel);
+    }
+
+    // ==========================================
+    // 强制画面初始化
+    // ==========================================
+    private void ApplyStartupDisplaySettings()
+    {
+        // 注意：换了新的保存 Key，避免被之前崩坏的注册表毒害
+        int resIdx = PlayerPrefs.GetInt("Set_ResIdx", 1);    // 默认 1080p
+        int modeIdx = PlayerPrefs.GetInt("Set_WinModeIdx", 2); // 默认 窗口化 (Windowed)
+        int fpsIdx = PlayerPrefs.GetInt("Set_FpsIdx", 1);    // 默认 60帧
+
+        Vector2Int res = resolutions[resIdx];
+        FullScreenMode mode = GetModeFromIndex(modeIdx);
+        
+        Screen.fullScreenMode = mode;
+        Screen.fullScreen = (mode != FullScreenMode.Windowed);
         Screen.SetResolution(res.x, res.y, mode);
         
-        PlayerPrefs.SetInt("ResolutionIndex", index);
-        PlayerPrefs.Save();
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = framerates[fpsIdx];
     }
 
-    public void SetTargetFramerate(int index)
+    private FullScreenMode GetModeFromIndex(int index)
     {
-        int fps = targetFramerates[index];
-        Application.targetFrameRate = fps;
-        
-        QualitySettings.vSyncCount = 0; 
-
-        PlayerPrefs.SetInt("FramerateIndex", index);
-        PlayerPrefs.Save();
+        if (index == 0) return FullScreenMode.ExclusiveFullScreen;
+        if (index == 1) return FullScreenMode.FullScreenWindow;
+        return FullScreenMode.Windowed;
     }
 
     // ==========================================
-    // 3. 控制设置 (Control Settings)
+    // UI 文字赋值与绑定 (防闪退机制)
     // ==========================================
-    private void InitControlSettings()
+    private void InitUI()
     {
-        // A. 鼠标灵敏度
-        if (mouseSensitivitySlider != null)
+        // --- 显示 ---
+        if (resolutionDropdown)
         {
-            float savedSens = PlayerPrefs.GetFloat("MouseSensitivity", 0.5f);
-            mouseSensitivitySlider.value = savedSens;
-            SetMouseSensitivity(savedSens);
-            mouseSensitivitySlider.onValueChanged.AddListener(SetMouseSensitivity);
+            resolutionDropdown.ClearOptions();
+            resolutionDropdown.AddOptions(new List<string> { "1280x720 (720p)", "1920x1080 (1080p)", "2560x1440 (2K)", "3840x2160 (4K)" });
+            resolutionDropdown.SetValueWithoutNotify(PlayerPrefs.GetInt("Set_ResIdx", 1));
+            // TMPro 不让强制刷新隐藏面板，所以干脆不掉用 RefreshShownValue，由它自身打开激活时自动渲染
+            resolutionDropdown.onValueChanged.AddListener(OnResolutionChanged);
         }
 
-        // B. 反转 Y 轴
-        if (invertYToggle != null)
+        if (windowModeDropdown)
         {
-            bool invertY = PlayerPrefs.GetInt("InvertYAxis", 0) == 1; // 默认不反转(0)
-            invertYToggle.isOn = invertY;
-            invertYToggle.onValueChanged.AddListener(SetInvertYAxis);
-        }
-    }
-
-    public void SetMouseSensitivity(float sensitivity)
-    {
-        PlayerPrefs.SetFloat("MouseSensitivity", sensitivity);
-        PlayerPrefs.Save();
-
-        if (mouseSensitivityValueText != null)
-        {
-            mouseSensitivityValueText.text = sensitivity.ToString("0.00");
+            windowModeDropdown.ClearOptions();
+            windowModeDropdown.AddOptions(new List<string> { "Exclusive Fullscreen", "Borderless Fullscreen", "Windowed" });
+            windowModeDropdown.SetValueWithoutNotify(PlayerPrefs.GetInt("Set_WinModeIdx", 2));
+            windowModeDropdown.onValueChanged.AddListener(OnWindowModeChanged);
         }
 
-        if (cameraMovement != null)
+        if (framerateDropdown)
         {
-            cameraMovement.mouseSensitivity = sensitivity;
+            framerateDropdown.ClearOptions();
+            framerateDropdown.AddOptions(new List<string> { "30 FPS", "60 FPS", "120 FPS", "144 FPS", "Unlimited" });
+            framerateDropdown.SetValueWithoutNotify(PlayerPrefs.GetInt("Set_FpsIdx", 1));
+            framerateDropdown.onValueChanged.AddListener(OnFramerateChanged);
         }
-    }
 
-    public void SetInvertYAxis(bool isInvert)
-    {
-        PlayerPrefs.SetInt("InvertYAxis", isInvert ? 1 : 0);
-        PlayerPrefs.Save();
-    }
-
-    // ==========================================
-    // 4. 游戏属性设置 (Game Settings)
-    // ==========================================
-    private void InitGameSettings()
-    {
-        if (showFPSToggle != null)
+        // --- 控制 ---
+        if (mouseSensitivitySlider)
         {
-            // 从保存配置里读取是否开启过 FPS 计数器 (默认 0：关闭)
-            bool isShowFPS = PlayerPrefs.GetInt("ShowFPS", 0) == 1;
-            showFPSToggle.isOn = isShowFPS;
+            float sens = PlayerPrefs.GetFloat("Set_MouseSens", 0.5f);
+            mouseSensitivitySlider.SetValueWithoutNotify(sens);
+            if (mouseSensitivityValueText) mouseSensitivityValueText.text = sens.ToString("0.00");
+            if (cameraMovement) cameraMovement.mouseSensitivity = sens;
+
+            mouseSensitivitySlider.onValueChanged.AddListener(OnSensitivityChanged);
+        }
+
+        if (invertYToggle)
+        {
+            bool invert = PlayerPrefs.GetInt("Set_InvertY", 0) == 1;
+            // SetIsOnWithoutNotify 是 Toggle 官方防止触发 onValueChanged 的方案
+            invertYToggle.SetIsOnWithoutNotify(invert);
+            invertYToggle.onValueChanged.AddListener(OnInvertYChanged);
+        }
+
+        // --- 游戏 ---
+        if (showFPSToggle)
+        {
+            bool showFPS = PlayerPrefs.GetInt("Set_ShowFPS", 0) == 1;
+            showFPSToggle.SetIsOnWithoutNotify(showFPS);
             
-            // 手动调用一次来设置隐藏/显示
-            SetShowFPS(isShowFPS);
-
-            showFPSToggle.onValueChanged.AddListener(SetShowFPS);
-        }
-    }
-
-    public void SetShowFPS(bool isShowFPS)
-    {
-        PlayerPrefs.SetInt("ShowFPS", isShowFPS ? 1 : 0);
-        PlayerPrefs.Save();
-
-        // 找到场上的 FPS 脚本并开关它本身 (如果 disabled 它就不会运行 Update 和 OnGUI)
-        if (fpsCounterObj != null)
-        {
-            fpsCounterObj.enabled = isShowFPS;
-            
-            // 如果它带有一个专门的 TextMeshPro UI 文字组件，把它对应的物体也关掉
-            if (fpsCounterObj.fpsText != null)
+            if (fpsCounter)
             {
-                fpsCounterObj.fpsText.gameObject.SetActive(isShowFPS);
+                fpsCounter.enabled = showFPS;
+                if (fpsCounter.fpsText) fpsCounter.fpsText.gameObject.SetActive(showFPS);
             }
+            
+            showFPSToggle.onValueChanged.AddListener(OnShowFPSChanged);
         }
     }
 
+    // ==========================================
+    // 动态生成按键绑定列表
+    // ==========================================
+    private void LoadAllKeybindOverrides()
+    {
+        if (cameraMovement == null) return;
+
+        // 为所有的 Input Action 尝试加载他们之前存下的 Override 绑定
+        LoadOverrideForAction(cameraMovement.moveAction);
+        LoadOverrideForAction(cameraMovement.verticalAction);
+        LoadOverrideForAction(cameraMovement.rotateAction);
+        // 按需加载其他...
+    }
+
+    private void LoadOverrideForAction(InputAction action)
+    {
+        // Composite binding 包含了多个按键，需要遍历每一个绑定子节点
+        for (int i = 0; i < action.bindings.Count; i++)
+        {
+            KeybindRow.LoadBindingOverride(action, i);
+        }
+    }
+
+    private void InitKeybindsUI()
+    {
+        if (keybindsContentParent == null || keybindRowPrefab == null || cameraMovement == null) return;
+
+        // 清空测试用的占位节点
+        foreach (Transform child in keybindsContentParent)
+        {
+            Destroy(child.gameObject);
+        }
+
+        // 绑定 WASD 移动 (复合键，每个方向是一个 Binding)
+        // bindings[0] 是 Composite 本身，[1] 是 Up, [2] 是 Down, [3] 是 Left, [4] 是 Right
+        CreateKeybindRow(cameraMovement.moveAction, 1, "Forward");
+        CreateKeybindRow(cameraMovement.moveAction, 2, "Backward");
+        CreateKeybindRow(cameraMovement.moveAction, 3, "Left");
+        CreateKeybindRow(cameraMovement.moveAction, 4, "Right");
+
+        // 绑定 FC 上下升降 
+        CreateKeybindRow(cameraMovement.verticalAction, 1, "Ascend");
+        CreateKeybindRow(cameraMovement.verticalAction, 2, "Descend");
+
+        // 绑定 QE 旋转
+        CreateKeybindRow(cameraMovement.rotateAction, 1, "Rotate Left");
+        CreateKeybindRow(cameraMovement.rotateAction, 2, "Rotate Right");
+    }
+
+    private void CreateKeybindRow(InputAction action, int bindingIndex, string displayName)
+    {
+        GameObject rowObj = Instantiate(keybindRowPrefab, keybindsContentParent);
+        KeybindRow rowScript = rowObj.GetComponent<KeybindRow>();
+        if (rowScript != null)
+        {
+            rowScript.Initialize(action, bindingIndex, displayName);
+        }
+    }
+
+    private void SwitchTab(GameObject activePanel)
+    {
+        if (displayPanel) displayPanel.SetActive(false);
+        if (qualityPanel) qualityPanel.SetActive(false);
+        if (controlsPanel) controlsPanel.SetActive(false);
+        if (gamePanel) gamePanel.SetActive(false);
+
+        if (activePanel) activePanel.SetActive(true);
+    }
+
+    // ==========================================
+    // UI 点击回调 (事件流)
+    // ==========================================
+    public void OnResolutionChanged(int index)
+    {
+        PlayerPrefs.SetInt("Set_ResIdx", index);
+        PlayerPrefs.Save();
+        ApplyScreenChange();
+    }
+
+    public void OnWindowModeChanged(int index)
+    {
+        PlayerPrefs.SetInt("Set_WinModeIdx", index);
+        PlayerPrefs.Save();
+        ApplyScreenChange();
+    }
+
+    private void ApplyScreenChange()
+    {
+        int resIdx = PlayerPrefs.GetInt("Set_ResIdx", 1);
+        int modeIdx = PlayerPrefs.GetInt("Set_WinModeIdx", 2);
+
+        Vector2Int res = resolutions[resIdx];
+        FullScreenMode mode = GetModeFromIndex(modeIdx);
+
+        Screen.fullScreenMode = mode;
+        Screen.fullScreen = (mode != FullScreenMode.Windowed);
+        Screen.SetResolution(res.x, res.y, mode);
+    }
+
+    public void OnFramerateChanged(int index)
+    {
+        PlayerPrefs.SetInt("Set_FpsIdx", index);
+        PlayerPrefs.Save();
+        
+        Application.targetFrameRate = framerates[index];
+    }
+
+    public void OnSensitivityChanged(float value)
+    {
+        PlayerPrefs.SetFloat("Set_MouseSens", value);
+        PlayerPrefs.Save();
+        
+        if (mouseSensitivityValueText) mouseSensitivityValueText.text = value.ToString("0.00");
+        if (cameraMovement) cameraMovement.mouseSensitivity = value;
+    }
+
+    public void OnInvertYChanged(bool isOn)
+    {
+        PlayerPrefs.SetInt("Set_InvertY", isOn ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    public void OnShowFPSChanged(bool isOn)
+    {
+        PlayerPrefs.SetInt("Set_ShowFPS", isOn ? 1 : 0);
+        PlayerPrefs.Save();
+        
+        if (fpsCounter)
+        {
+            fpsCounter.enabled = isOn;
+            if (fpsCounter.fpsText) fpsCounter.fpsText.gameObject.SetActive(isOn);
+        }
+    }
 }

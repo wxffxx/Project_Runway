@@ -12,6 +12,10 @@ public class CameraMovement : MonoBehaviour
     [Header("Rotation & Orbit (旋转与环绕)")]
     public float rotationSpeed = 80.0f; // QE 的环绕速度
     public float mouseSensitivity = 0.5f; // 鼠标灵敏度 (用于环绕)
+    [Tooltip("相机俯仰角的最小限制（防止钻入地下看天）")]
+    public float minPitch = 1.0f;
+    [Tooltip("相机俯仰角的最大限制（防止翻跟头）")]
+    public float maxPitch = 89.0f;
 
     [Header("Mouse Controls (鼠标控制)")]
     [Tooltip("滚轮缩放的“灵敏度”或“力度” (新输入系统数值较大，默认设为 0.01 左右较合适)")]
@@ -225,21 +229,39 @@ public class CameraMovement : MonoBehaviour
         if (isOrbiting)
         {
             Vector3 focusPoint = GetFocusPoint();
-            // 在新输入系统中，鼠标 delta 是按帧度量的真实像素移动量，无需再乘 Time.deltaTime
+            // 在新输入系统中，鼠标 delta 是按帧度量的真实像素移动量
             Vector2 lookInput = lookAction.ReadValue<Vector2>();
             float mouseX = lookInput.x * mouseSensitivity;
             float mouseY = lookInput.y * mouseSensitivity;
 
-            // 左右环绕 (Yaw) - 绕着世界Y轴
+            // 1. 左右环绕 (Yaw) - 绕着世界Y轴
             transform.RotateAround(focusPoint, Vector3.up, mouseX);
             
-            // 上下环绕 (Pitch) - 绕着摄像机本地的X轴 (使用 -mouseY 反转Y轴)
+            // 2. 上下环绕 (Pitch) - 绕着摄像机本地的X轴 (使用 -mouseY 反转Y轴)
             transform.RotateAround(focusPoint, transform.right, -mouseY);
 
-            // 修正Z轴，防止因为欧拉角计算误差导致相机倾斜
+            // 3. 读取欧拉角进行限制和修正
             Vector3 euler = transform.eulerAngles;
-            euler.z = 0f;
+            
+            // Unity 的 Euler 角度在 0~360 之间，我们需要把它转换到 -180~180 以便 Clamp
+            float pitch = euler.x;
+            if (pitch > 180f) pitch -= 360f;
+            
+            // 此处的 minPitch 和 maxPitch 可在 Inspector 中调整 (您刚说的限制 1 到 89 度)
+            pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+            
+            // 应用修正后的角度
+            euler.x = pitch;
+            euler.z = 0f; // 始终维持 Z 为 0，防止因为欧拉角计算误差导致相机倾斜 (Roll)
+            
+            // 放回修正后的角度
             transform.eulerAngles = euler;
+            
+            // 4. 由于通过 Euler 强制修改了角度停止了相机的翻转，如果是环绕（RotateAround），
+            // 位置可能会因为刚才的强行阻断而脱轨。
+            // 所以我们需要重新修正相机的位置，让它沿着新方向倒退出之前算好的距离，始终保持在焦点表面。
+            float distance = Vector3.Distance(transform.position, focusPoint);
+            transform.position = focusPoint - transform.forward * distance;
         }
     }
 
@@ -264,16 +286,27 @@ public class CameraMovement : MonoBehaviour
 
     private Vector3 GetFocusPoint()
     {
+        // 1. 尝试使用物理射线检测 (如果有地形或特定建筑)
         RaycastHit hit;
         if (Physics.Raycast(transform.position, transform.forward, out hit, Mathf.Infinity))
         {
-            // 1. 射线碰到了物体：使用碰撞点作为旋转中心
             return hit.point;
         }
-        else
+
+        // 2. 物理射线未碰到物体时的终极数学保底方案：强行计算射线与海平面(Y=0)的交点
+        // 这解决了巨大 Plane 上 MeshCollider 偶然失效或视野平行时找不到焦点的问题
+        float cameraY = transform.position.y;
+        float dirY = transform.forward.y;
+
+        // 如果摄像机在往下看 (dirY < 0)，必定会和 Y=0 这个绝对海平面相交
+        if (dirY < -0.001f)
         {
-            // 2. 射线未碰到物体 (例如看向天空)：由于默认距离在摄像机前方创建一个“虚拟”旋转中心
-            return transform.position + (transform.forward * defaultFocusDistance);
+            // 通过相似三角形计算射线到达 y=0 需要的长度 t
+            float t = -cameraY / dirY;
+            return transform.position + transform.forward * t;
         }
+        
+        // 3. 如果平视或者仰视天空（完全不碰地面），只能用前方的空虚点当圆心
+        return transform.position + (transform.forward * defaultFocusDistance);
     }
 }
