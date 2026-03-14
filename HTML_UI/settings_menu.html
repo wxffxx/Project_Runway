@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Project: Runway</title>
+    <style>
+        :root {
+            --cad-bg: #05080c; --cad-panel: #0d131f; --cad-accent: #ffaa00; 
+            --cad-text: #a0b0c0; --cad-border: #334455; --cad-highlight: rgba(255, 170, 0, 0.1);
+        }
+
+        body {
+            background-color: var(--cad-bg); color: var(--cad-text); font-family: 'Courier New', Courier, monospace;
+            display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;
+        }
+
+        .settings-container {
+            width: 900px; height: 650px; background-color: var(--cad-panel);
+            border: 1px solid var(--cad-border); display: flex; box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+
+        aside { width: 250px; border-right: 1px solid var(--cad-border); background: #0a0f18; }
+        
+        .tab {
+            padding: 20px; cursor: pointer; border-bottom: 1px solid var(--cad-border);
+            color: #667788; text-transform: uppercase; font-size: 0.9rem; transition: 0.2s;
+        }
+        .tab:hover { color: #fff; background: var(--cad-highlight); }
+        .tab.active { border-left: 4px solid var(--cad-accent); color: var(--cad-accent); background: #0d131f; font-weight: bold; }
+
+        main { flex-grow: 1; padding: 40px; position: relative; overflow-y: auto; }
+        
+        .settings-panel { display: none; }
+        .settings-panel.active { display: block; animation: fadeIn 0.3s; }
+
+        h2 { color: #fff; border-bottom: 1px solid var(--cad-border); padding-bottom: 10px; margin-bottom: 30px; text-transform: uppercase; font-size: 1.2rem; }
+
+        .setting-group { margin-bottom: 30px; display: flex; flex-direction: column; }
+        .setting-group label { margin-bottom: 8px; color: var(--cad-accent); font-size: 0.85rem; }
+        .setting-group small { color: #556677; margin-top: 5px; font-size: 0.75rem; }
+        
+        select, input[type="text"] { background: #05080c; color: #fff; border: 1px solid var(--cad-border); padding: 10px; font-family: inherit; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        .slider-readout { color: #fff; font-weight: bold; float: right; }
+
+        .checkbox-container { display: flex; align-items: center; gap: 10px; color: #fff; font-size: 0.9rem; }
+
+        .actions { position: absolute; bottom: 40px; right: 40px; display: flex; gap: 15px; }
+        button { background: transparent; color: var(--cad-text); border: 1px solid var(--cad-border); padding: 10px 20px; cursor: pointer; font-family: inherit; text-transform: uppercase; font-size: 0.8rem; }
+        button.primary { border-color: var(--cad-accent); color: var(--cad-accent); }
+        button.primary:hover { background: var(--cad-accent); color: #000; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div class="settings-container">
+        <aside id="settings-tabs">
+            <div class="tab active" data-target="panel-engine">Simulation Engine</div>
+            <div class="tab" data-target="panel-video">Display & UI</div>
+            <div class="tab" data-target="panel-telemetry">Telemetry</div>
+        </aside>
+
+        <main>
+            <div id="panel-engine" class="settings-panel active">
+                <h2>Data-Oriented Engine Parameters</h2>
+                
+                <div class="setting-group">
+                    <label>Max Passenger Particle Cap (ECS Engine) <span class="slider-readout" id="pax-val">5000</span></label>
+                    <input type="range" id="pax-slider" min="1000" max="20000" step="500" value="5000">
+                    <small>Allocates memory for simultaneous agent simulation. High values may bottleneck rendering.</small>
+                </div>
+
+                <div class="setting-group">
+                    <label>Simulation Tick Rate (Hz) <span class="slider-readout" id="tick-val">60</span></label>
+                    <input type="range" id="tick-slider" min="30" max="120" step="10" value="60">
+                    <small>Decoupled logic computation frequency.</small>
+                </div>
+
+                <div class="setting-group">
+                    <label>Regulatory Fidelity</label>
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="faa-strict" checked>
+                        <label for="faa-strict">Enforce strict FAA AC 150/5300-13B standards</label>
+                    </div>
+                </div>
+            </div>
+
+            <div id="panel-video" class="settings-panel">
+                <h2>Display & HUD Configuration</h2>
+                <div class="setting-group">
+                    <label>CAD Color Profile</label>
+                    <select>
+                        <option>Industrial Cyan (Default)</option>
+                        <option>High-Contrast Blueprint</option>
+                        <option>Terminal Phosphor Green</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="panel-telemetry" class="settings-panel">
+                <h2>Data Analytics</h2>
+                <div class="setting-group">
+                    <label>Multi-Subsystem Telemetry</label>
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="telemetry-opt">
+                        <label for="telemetry-opt">Send Throughput & Local Optima data to devs</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button>Discard</button>
+                <button class="primary" id="btn-apply">Apply Changes</button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Tab switching logic
+        const tabs = document.querySelectorAll('.tab');
+        const panels = document.querySelectorAll('.settings-panel');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                panels.forEach(p => p.classList.remove('active'));
+
+                tab.classList.add('active');
+                const targetId = tab.getAttribute('data-target');
+                document.getElementById(targetId).classList.add('active');
+            });
+        });
+
+        // slider 
+        const paxSlider = document.getElementById('pax-slider');
+        const paxVal = document.getElementById('pax-val');
+        paxSlider.addEventListener('input', (e) => { paxVal.innerText = e.target.value; });
+
+        const tickSlider = document.getElementById('tick-slider');
+        const tickVal = document.getElementById('tick-val');
+        tickSlider.addEventListener('input', (e) => { tickVal.innerText = e.target.value; });
+
+        document.getElementById('btn-apply').addEventListener('click', () => {
+            alert("SYSTEM ARCHITECT OVERRIDE: Parameters applied successfully.");
+        });
+    </script>
+</body>
+</html>
