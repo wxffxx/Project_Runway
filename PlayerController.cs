@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement")]
@@ -25,6 +26,7 @@ public class PlayerController : MonoBehaviour
     private CharacterController controller;
     private Vector3 velocity;
     private bool isGrounded;
+    private bool jumpQueued;
 
     private float coyoteTimer;
     private float jumpBufferTimer;
@@ -38,6 +40,10 @@ public class PlayerController : MonoBehaviour
     {
         controller = GetComponent<CharacterController>();
         targetHeight = standHeight;
+        SyncControllerCenter(standHeight);
+
+        if (cameraTransform == null && Camera.main != null)
+            cameraTransform = Camera.main.transform;
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -45,6 +51,14 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        if (Input.GetKeyDown(KeyCode.Escape))
+            SetCursorState(false);
+        else if (Input.GetMouseButtonDown(0))
+            SetCursorState(true);
+
+        if (Input.GetButtonDown("Jump"))
+            jumpQueued = true;
+
         HandleMouseLook();
         HandleGroundCheck();
         HandleCrouch();
@@ -55,7 +69,7 @@ public class PlayerController : MonoBehaviour
 
     void HandleMouseLook()
     {
-        if (cameraTransform == null) return;
+        if (cameraTransform == null || Cursor.lockState != CursorLockMode.Locked) return;
 
         float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * Time.deltaTime;
         float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * Time.deltaTime;
@@ -102,16 +116,22 @@ public class PlayerController : MonoBehaviour
         }
 
         float currentHeight = Mathf.Lerp(controller.height, targetHeight, crouchTransitionSpeed * Time.deltaTime);
-        Vector3 center = controller.center;
-        center.y = currentHeight / 2f;
         controller.height = currentHeight;
-        controller.center = center;
+        SyncControllerCenter(currentHeight);
     }
 
     bool CanStandUp()
     {
-        Vector3 origin = transform.position;
-        return !Physics.Raycast(origin, Vector3.up, standHeight);
+        float castDistance = standHeight - controller.height;
+        if (castDistance <= 0f)
+            return true;
+
+        Vector3 worldCenter = transform.TransformPoint(controller.center);
+        float currentTop = worldCenter.y + controller.height * 0.5f - controller.radius;
+        Vector3 origin = new Vector3(worldCenter.x, currentTop, worldCenter.z);
+        float radius = Mathf.Max(0.01f, controller.radius * 0.95f);
+
+        return !Physics.SphereCast(origin, radius, Vector3.up, out _, castDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
     }
 
     void HandleMovement()
@@ -133,10 +153,15 @@ public class PlayerController : MonoBehaviour
 
     void HandleJump()
     {
-        if (Input.GetButtonDown("Jump"))
+        if (jumpQueued)
+        {
             jumpBufferTimer = jumpBufferTime;
+            jumpQueued = false;
+        }
         else
+        {
             jumpBufferTimer -= Time.deltaTime;
+        }
 
         bool canJump = coyoteTimer > 0f && !isCrouching;
 
@@ -152,5 +177,18 @@ public class PlayerController : MonoBehaviour
     {
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
+    }
+
+    void SyncControllerCenter(float height)
+    {
+        Vector3 center = controller.center;
+        center.y = height * 0.5f;
+        controller.center = center;
+    }
+
+    void SetCursorState(bool locked)
+    {
+        Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
+        Cursor.visible = !locked;
     }
 }
