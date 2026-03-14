@@ -12,6 +12,13 @@ namespace PP_RY.Core.Navigation
         public PathNode thresholdNode; // 起点接地点
         public PathNode endNode;       // 跑道尽头
 
+        // ----------------- 流量控制 (Traffic Control) -----------------
+        [System.NonSerialized]
+        public RunwayStatus currentStatus = RunwayStatus.Free;
+        [System.NonSerialized]
+        public string activeFlightId = ""; // 当前正在占用跑道的航班号
+        // --------------------------------------------------------------
+
         // 包含所有 100m 间隔生成的核心节点，按照从起飞到滑跑的顺序排列
         public List<PathNode> centerlineNodes = new List<PathNode>();
 
