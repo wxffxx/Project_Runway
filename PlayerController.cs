@@ -10,12 +10,19 @@ public class PlayerController : MonoBehaviour
     [Range(0f, 1f)] public float airControlPercent = 0.5f;
     public bool sprintOnlyForward = true;
 
+    [Header("Sprint Stamina")]
+    public float maxStamina = 5f;
+    public float staminaDrainPerSecond = 1f;
+    public float staminaRecoveryPerSecond = 0.75f;
+    public float sprintRecoveryDelay = 0.75f;
+
     [Header("Jump")]
     public float jumpForce = 8f;
     public float gravity = -20f;
     public float coyoteTime = 0.15f;
     public float jumpBufferTime = 0.1f;
     public float groundedGravity = -2f;
+    [Range(0f, 1f)] public float jumpCutMultiplier = 0.5f;
 
     [Header("Crouch")]
     public float crouchHeight = 1f;
@@ -30,9 +37,12 @@ public class PlayerController : MonoBehaviour
     private Vector3 velocity;
     private bool isGrounded;
     private bool jumpQueued;
+    private bool wasGrounded;
 
     private float coyoteTimer;
     private float jumpBufferTimer;
+    private float stamina;
+    private float sprintRecoveryTimer;
 
     private bool isCrouching;
     private float targetHeight;
@@ -49,11 +59,17 @@ public class PlayerController : MonoBehaviour
         jumpForce = Mathf.Max(0f, jumpForce);
         crouchTransitionSpeed = Mathf.Max(0f, crouchTransitionSpeed);
         groundedGravity = Mathf.Min(groundedGravity, 0f);
+        maxStamina = Mathf.Max(0f, maxStamina);
+        staminaDrainPerSecond = Mathf.Max(0f, staminaDrainPerSecond);
+        staminaRecoveryPerSecond = Mathf.Max(0f, staminaRecoveryPerSecond);
+        sprintRecoveryDelay = Mathf.Max(0f, sprintRecoveryDelay);
+        jumpCutMultiplier = Mathf.Clamp01(jumpCutMultiplier);
     }
 
     void Start()
     {
         controller = GetComponent<CharacterController>();
+        stamina = maxStamina;
         targetHeight = standHeight;
         SyncControllerCenter(standHeight);
 
@@ -79,6 +95,7 @@ public class PlayerController : MonoBehaviour
         HandleCrouch();
         HandleMovement();
         HandleJump();
+        UpdateStamina();
         ApplyGravity();
     }
 
@@ -98,10 +115,14 @@ public class PlayerController : MonoBehaviour
 
     void HandleGroundCheck()
     {
+        wasGrounded = isGrounded;
         isGrounded = controller.isGrounded;
 
         if (isGrounded)
         {
+            if (!wasGrounded)
+                jumpQueued = false;
+
             coyoteTimer = coyoteTime;
             if (velocity.y < 0f)
                 velocity.y = groundedGravity;
@@ -183,6 +204,9 @@ public class PlayerController : MonoBehaviour
             jumpBufferTimer = 0f;
             coyoteTimer = 0f;
         }
+
+        if (Input.GetButtonUp("Jump") && velocity.y > 0f)
+            velocity.y *= jumpCutMultiplier;
     }
 
     void ApplyGravity()
@@ -203,11 +227,39 @@ public class PlayerController : MonoBehaviour
         if (isCrouching)
             return crouchSpeed;
 
-        bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded;
+        bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded && stamina > 0f;
         if (sprintOnlyForward)
             isTryingToSprint &= moveZ > 0.1f;
 
         return isTryingToSprint ? sprintSpeed : moveSpeed;
+    }
+
+    void UpdateStamina()
+    {
+        bool isMoving = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
+        bool isSprinting = !isCrouching && isGrounded && isMoving && Mathf.Approximately(GetCurrentHorizontalSpeed(), sprintSpeed);
+
+        if (isSprinting)
+        {
+            stamina = Mathf.Max(0f, stamina - staminaDrainPerSecond * Time.deltaTime);
+            sprintRecoveryTimer = sprintRecoveryDelay;
+            return;
+        }
+
+        if (sprintRecoveryTimer > 0f)
+        {
+            sprintRecoveryTimer -= Time.deltaTime;
+            return;
+        }
+
+        stamina = Mathf.Min(maxStamina, stamina + staminaRecoveryPerSecond * Time.deltaTime);
+    }
+
+    float GetCurrentHorizontalSpeed()
+    {
+        Vector3 horizontalVelocity = controller.velocity;
+        horizontalVelocity.y = 0f;
+        return horizontalVelocity.magnitude;
     }
 
     void SetCursorState(bool locked)
