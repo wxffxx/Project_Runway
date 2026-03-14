@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logistics Node Editor - Project: Runway</title>
+    <style>
+        :root {
+            --bg-grid: #0f1520;
+            --accent-amber: #ffaa00;
+            --node-bg: #1a2436;
+            --wire-color: #557799;
+        }
+
+        body {
+            margin: 0; display: flex; height: 100vh; font-family: 'Courier New', monospace;
+            background-color: var(--bg-grid); color: #ccc;
+
+            background-image: 
+                linear-gradient(rgba(255, 170, 0, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 170, 0, 0.1) 1px, transparent 1px);
+            background-size: 50px 50px;
+            overflow: hidden;
+        }
+
+        /* sidebar */
+        aside { width: 300px; background: rgba(5, 8, 12, 0.95); border-right: 2px solid var(--accent-amber); padding: 20px; display: flex; flex-direction: column; gap: 20px; z-index: 10; }
+        h2 { color: var(--accent-amber); font-size: 1.1rem; border-bottom: 1px solid #334; padding-bottom: 10px; margin: 0; text-transform: uppercase; }
+        
+        .diagnostic-panel { background: #000; padding: 10px; border: 1px solid #333; font-size: 0.75rem; }
+        .diag-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .diag-val { color: #00ffcc; font-weight: bold; }
+
+        .tool-btn { background: #111; border: 1px dashed var(--accent-amber); color: var(--accent-amber); padding: 10px; text-align: left; cursor: pointer; transition: 0.2s; font-size: 0.8rem; }
+        .tool-btn:hover { background: var(--accent-amber); color: #000; }
+
+        main { flex-grow: 1; position: relative; }
+
+        /* baggage Sorting Lines*/
+        .logic-node {
+            position: absolute; width: 220px; background: var(--node-bg); border: 1px solid var(--accent-amber);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden;
+            cursor: move; user-select: none;
+        }
+        .node-header { background: var(--accent-amber); color: #000; padding: 5px 10px; font-weight: bold; font-size: 0.8rem; display: flex; justify-content: space-between; }
+        .node-body { padding: 10px; font-size: 0.75rem; }
+        
+        /* Node I/O */
+        .port-row { display: flex; justify-content: space-between; align-items: center; margin-top: 5px; }
+        .port { width: 12px; height: 12px; background: #000; border: 2px solid var(--wire-color); border-radius: 50%; }
+        .port.out { border-color: var(--accent-amber); }
+
+        /* wires connecting nodes */
+        svg.wire-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        path.wire { fill: none; stroke: var(--wire-color); stroke-width: 3; stroke-dasharray: 5, 5; animation: flow 1s linear infinite; }
+        @keyframes flow { to { stroke-dashoffset: -10; } }
+
+        /* unused */
+        .oscilloscope {
+            position: absolute; bottom: 0; left: 300px; right: 0; height: 100px; background: rgba(0,0,0,0.8);
+            border-top: 1px solid var(--accent-amber); display: flex; align-items: center; padding: 0 20px; gap: 20px;
+        }
+        .osc-title { font-size: 0.7rem; color: #888; width: 150px; }
+        .osc-canvas { height: 60px; flex-grow: 1; background: #050a05; border: 1px solid #1a331a; position: relative; overflow: hidden; }
+        .sine-wave { position: absolute; top: 50%; width: 200%; height: 2px; background: transparent; border-top: 2px solid #00ff00; transform: translateY(-50%); }
+    </style>
+</head>
+<body>
+
+    <aside>
+        <h2>Logistics Interface</h2>
+        <div style="font-size: 0.7rem; color: #888;">Optimization of supply chains and ground-handling movement patterns.</div>
+        
+        <div class="diagnostic-panel">
+            <div class="diag-row"><span>Belt Tension Coeff:</span> <span class="diag-val">0.84 μ</span></div>
+            <div class="diag-row"><span>Motor Heat Disp:</span> <span class="diag-val">42.1°C</span></div>
+            <div class="diag-row"><span>Synthetic Lube Lvl:</span> <span class="diag-val">OPTIMAL</span></div>
+            <div class="diag-row"><span>GSE Swarm Ping:</span> <span class="diag-val">12ms</span></div>
+        </div>
+
+        <div style="margin-top: 20px; font-size: 0.8rem; border-bottom: 1px solid #334; padding-bottom: 5px;">ADD LOGIC GATE</div>
+        <div class="tool-btn">+ PID Controller (GSE Tug)</div>
+        <div class="tool-btn">+ IF/THEN Routing Sorter</div>
+        <div class="tool-btn">+ Customs X-Ray Node</div>
+    </aside>
+
+    <main>
+        <svg class="wire-layer">
+            <path class="wire" d="M 150 150 C 300 150, 200 350, 400 350" />
+            <path class="wire" d="M 620 350 C 700 350, 750 200, 800 200" />
+        </svg>
+
+        <div class="logic-node" style="top: 100px; left: 50px;" id="node1">
+            <div class="node-header"><span>INPUT: TERMINAL A</span> <span>ID:01</span></div>
+            <div class="node-body">
+                <div>Source: Ticket Counters</div>
+                <div>Flow Rate: 45 units/min</div>
+                <div class="port-row"><span></span> <div class="port out"></div></div>
+            </div>
+        </div>
+
+        <div class="logic-node" style="top: 300px; left: 400px;" id="node2">
+            <div class="node-header"><span>GATE: INT'L SORTER</span> <span>ID:02</span></div>
+            <div class="node-body">
+                <div>IF [Bag_Tag == INT_TRANSFER]</div>
+                <div>THEN Route_To [CUSTOMS_NODE]</div>
+                <div class="port-row"><div class="port"></div> <div class="port out"></div></div>
+            </div>
+        </div>
+
+        <div class="logic-node" style="top: 150px; left: 800px;" id="node3">
+            <div class="node-header"><span>OUT: GSE SWARM TUG</span> <span>ID:03</span></div>
+            <div class="node-body">
+                <div>Target: Flight AAL102</div>
+                <div>Status: Awaiting Load</div>
+                <div class="port-row"><div class="port"></div> <span></span></div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const nodes = document.querySelectorAll('.logic-node');
+        let activeNode = null;
+        let offset = [0,0];
+
+        nodes.forEach(node => {
+            node.querySelector('.node-header').addEventListener('mousedown', (e) => {
+                activeNode = node;
+                offset = [
+                    node.offsetLeft - e.clientX,
+                    node.offsetTop - e.clientY
+                ];
+            });
+        });
+
+        document.addEventListener('mouseup', () => { activeNode = null; });
+        document.addEventListener('mousemove', (e) => {
+            if(activeNode) {
+                activeNode.style.left = (e.clientX + offset[0]) + 'px';
+                activeNode.style.top  = (e.clientY + offset[1]) + 'px';
+            }
+        });
+    </script>
+</body>
+</html>
