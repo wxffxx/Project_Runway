@@ -7,12 +7,15 @@ public class PlayerController : MonoBehaviour
     public float moveSpeed = 6f;
     public float sprintSpeed = 10f;
     public float crouchSpeed = 3f;
+    [Range(0f, 1f)] public float airControlPercent = 0.5f;
+    public bool sprintOnlyForward = true;
 
     [Header("Jump")]
     public float jumpForce = 8f;
     public float gravity = -20f;
     public float coyoteTime = 0.15f;
     public float jumpBufferTime = 0.1f;
+    public float groundedGravity = -2f;
 
     [Header("Crouch")]
     public float crouchHeight = 1f;
@@ -35,6 +38,18 @@ public class PlayerController : MonoBehaviour
     private float targetHeight;
 
     private float xRotation = 0f;
+
+    void OnValidate()
+    {
+        crouchHeight = Mathf.Max(0.5f, crouchHeight);
+        standHeight = Mathf.Max(crouchHeight, standHeight);
+        moveSpeed = Mathf.Max(0f, moveSpeed);
+        sprintSpeed = Mathf.Max(moveSpeed, sprintSpeed);
+        crouchSpeed = Mathf.Clamp(crouchSpeed, 0f, moveSpeed);
+        jumpForce = Mathf.Max(0f, jumpForce);
+        crouchTransitionSpeed = Mathf.Max(0f, crouchTransitionSpeed);
+        groundedGravity = Mathf.Min(groundedGravity, 0f);
+    }
 
     void Start()
     {
@@ -89,7 +104,7 @@ public class PlayerController : MonoBehaviour
         {
             coyoteTimer = coyoteTime;
             if (velocity.y < 0f)
-                velocity.y = -2f;
+                velocity.y = groundedGravity;
         }
         else
         {
@@ -138,17 +153,14 @@ public class PlayerController : MonoBehaviour
     {
         float moveX = Input.GetAxis("Horizontal");
         float moveZ = Input.GetAxis("Vertical");
+        Vector3 inputDirection = new Vector3(moveX, 0f, moveZ);
+        inputDirection = Vector3.ClampMagnitude(inputDirection, 1f);
 
-        float currentSpeed;
-        if (isCrouching)
-            currentSpeed = crouchSpeed;
-        else if (Input.GetKey(KeyCode.LeftShift) && isGrounded)
-            currentSpeed = sprintSpeed;
-        else
-            currentSpeed = moveSpeed;
+        float currentSpeed = GetCurrentSpeed(moveZ);
+        float controlPercent = isGrounded ? 1f : airControlPercent;
 
-        Vector3 move = transform.right * moveX + transform.forward * moveZ;
-        controller.Move(move * currentSpeed * Time.deltaTime);
+        Vector3 move = transform.right * inputDirection.x + transform.forward * inputDirection.z;
+        controller.Move(move * (currentSpeed * controlPercent * Time.deltaTime));
     }
 
     void HandleJump()
@@ -184,6 +196,18 @@ public class PlayerController : MonoBehaviour
         Vector3 center = controller.center;
         center.y = height * 0.5f;
         controller.center = center;
+    }
+
+    float GetCurrentSpeed(float moveZ)
+    {
+        if (isCrouching)
+            return crouchSpeed;
+
+        bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded;
+        if (sprintOnlyForward)
+            isTryingToSprint &= moveZ > 0.1f;
+
+        return isTryingToSprint ? sprintSpeed : moveSpeed;
     }
 
     void SetCursorState(bool locked)
