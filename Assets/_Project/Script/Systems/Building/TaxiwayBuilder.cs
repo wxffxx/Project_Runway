@@ -3,7 +3,7 @@ using UnityEngine.InputSystem;
 using PP_RY.Core.Navigation;
 using PP_RY.Systems.Navigation;
 
-public class TaxiwayBuilder : MonoBehaviour
+public class TaxiwayBuilder : BaseBuilder
 {
     [Header("Builder Settings")]
     public float minLength = 5f; // 滑行道最小长度，比跑道宽容一些
@@ -20,14 +20,8 @@ public class TaxiwayBuilder : MonoBehaviour
 
     public static TaxiwayBuilder Instance;
 
-    private enum BuildState { Idle, PlacingStart, PlacingEnd }
-    private BuildState currentState = BuildState.Idle;
-
     private float currentCoreWidth;
     private float currentTotalWidth;
-    private string currentCategoryName = "";
-
-    private Vector3 startPoint;
     
     // 我们用两个物体组合表示滑行道：
     // ghostCoreObj 负责深灰色的中间道面，比跑道略低。
@@ -35,7 +29,7 @@ public class TaxiwayBuilder : MonoBehaviour
     private GameObject ghostCoreObj;
     private GameObject ghostShoulderObj;
     
-    private string tooltip = "";
+    private GameObject ghostShoulderObj;
 
     void Awake()
     {
@@ -43,27 +37,7 @@ public class TaxiwayBuilder : MonoBehaviour
         else Destroy(gameObject);
     }
 
-    void Update()
-    {
-        if (currentState == BuildState.PlacingStart)
-        {
-            HandlePlacingStart();
-        }
-        else if (currentState == BuildState.PlacingEnd)
-        {
-            HandlePlacingEnd();
-        }
 
-        // 按 ESC 随时取消建造
-        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
-        {
-            CancelBuild();
-        }
-        if (Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame)
-        {
-            CancelBuild();
-        }
-    }
 
     // 给 UI 调用的公开方法
     public void StartBuildingTaxiway(float coreWidth, float totalWidth, string categoryName)
@@ -82,7 +56,7 @@ public class TaxiwayBuilder : MonoBehaviour
         ghostShoulderObj = null;
     }
 
-    private void HandlePlacingStart()
+    protected override void HandlePlacingStart()
     {
         Vector3? hitPos = GetMouseGroundPosition();
         if (hitPos.HasValue && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
@@ -108,7 +82,7 @@ public class TaxiwayBuilder : MonoBehaviour
         }
     }
 
-    private void HandlePlacingEnd()
+    protected override void HandlePlacingEnd()
     {
         Vector3? hitPos = GetMouseGroundPosition();
         if (hitPos.HasValue)
@@ -251,65 +225,19 @@ public class TaxiwayBuilder : MonoBehaviour
         }
     }
 
-    public void CancelBuildFromExternal()
-    {
-        if (currentState != BuildState.Idle) CancelBuild();
-    }
-
-    private void CancelBuild()
+    protected override void CancelBuild()
     {
         if (ghostCoreObj != null) Destroy(ghostCoreObj);
         if (ghostShoulderObj != null) Destroy(ghostShoulderObj);
         ghostCoreObj = null;
         ghostShoulderObj = null;
         
-        ExitBuildMode();
+        base.CancelBuild();
         tooltip = "已取消建造滑行道。";
     }
 
-    private void ExitBuildMode()
+    protected override void DrawFloatingTooltip()
     {
-        currentState = BuildState.Idle;
-    }
-
-    // 强迫症网格依附：1米格子
-    private Vector3? GetMouseGroundPosition()
-    {
-        if (Camera.main == null) return null;
-        Vector2 mousePos = Mouse.current.position.ReadValue();
-        Ray ray = Camera.main.ScreenPointToRay(mousePos);
-
-        Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
-        if (groundPlane.Raycast(ray, out float enterDistance))
-        {
-            Vector3 rawPoint = ray.GetPoint(enterDistance);
-            rawPoint.x = Mathf.Round(rawPoint.x);
-            rawPoint.z = Mathf.Round(rawPoint.z);
-            rawPoint.y = 0f;
-            return rawPoint;
-        }
-        return null;
-    }
-
-    // 专属的浮动提示 UI
-    private void OnGUI()
-    {
-        if (!string.IsNullOrEmpty(tooltip) && currentState != BuildState.Idle)
-        {
-            GUIStyle style = new GUIStyle();
-            style.fontSize = 28;
-            style.fontStyle = FontStyle.Bold;
-            style.normal.textColor = Color.yellow;
-            style.alignment = TextAnchor.MiddleCenter;
-            GUI.Label(new Rect(0, 50, Screen.width, 100), tooltip, style);
-        }
-        else if (!string.IsNullOrEmpty(tooltip)) 
-        {
-            GUIStyle style = new GUIStyle();
-            style.fontSize = 24;
-            style.normal.textColor = Color.white;
-            GUI.Label(new Rect(20, 100, 400, 100), tooltip, style);
-        }
 
         if (currentState == BuildState.PlacingEnd)
         {

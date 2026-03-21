@@ -3,7 +3,7 @@ using UnityEngine.InputSystem; // 基于新输入系统的交互
 using PP_RY.Core.Navigation;
 using PP_RY.Systems.Navigation;
 
-public class RunwayBuilder : MonoBehaviour
+public class RunwayBuilder : BaseBuilder
 {
     [Header("Runway Settings")]
     public float runwayWidth = 15f;      // 跑道宽度 (X轴)
@@ -14,14 +14,7 @@ public class RunwayBuilder : MonoBehaviour
     public Material ghostMaterial;  // 建造中（幽灵模式）的材质
     public Material placedMaterial; // 建造完毕（实体模式）的材质
 
-    // 建造状态机
-    private enum BuildState { Idle, PlacingStart, PlacingEnd }
-    private BuildState currentState = BuildState.Idle;
-
-    private Vector3 startPoint;
     private GameObject currentGhostRunway;
-    private string tooltip = ""; // 屏幕顶部的UI提示
-    private string currentCategoryName = ""; // 当前正在建造的跑道等级
 
     public static RunwayBuilder Instance;
 
@@ -31,29 +24,6 @@ public class RunwayBuilder : MonoBehaviour
         else Destroy(gameObject);
     }
 
-    void Update()
-    {
-        // 1. 根据状态处理点击
-        if (currentState == BuildState.PlacingStart)
-        {
-            HandlePlacingStart();
-        }
-        else if (currentState == BuildState.PlacingEnd)
-        {
-            HandlePlacingEnd();
-        }
-
-        // 按 ESC 或 鼠标右键 随时取消建造
-        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
-        {
-            CancelBuild();
-        }
-        
-        if (Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame)
-        {
-            CancelBuild();
-        }
-    }
 
     // 给 UI 按钮调用的公开方法
     public void StartBuildingRunway(float width, string categoryName)
@@ -66,7 +36,7 @@ public class RunwayBuilder : MonoBehaviour
         if (currentGhostRunway != null) Destroy(currentGhostRunway);
     }
 
-    private void HandlePlacingStart()
+    protected override void HandlePlacingStart()
     {
         if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
         {
@@ -92,7 +62,7 @@ public class RunwayBuilder : MonoBehaviour
         }
     }
 
-    private void HandlePlacingEnd()
+    protected override void HandlePlacingEnd()
     {
         Vector3? hitPos = GetMouseGroundPosition();
         if (hitPos.HasValue)
@@ -308,79 +278,14 @@ public class RunwayBuilder : MonoBehaviour
         }
     }
 
-    private void CancelBuild()
+    protected override void CancelBuild()
     {
         if (currentGhostRunway != null) Destroy(currentGhostRunway);
-        ExitBuildMode();
-        tooltip = "已取消建造。";
-    }
-    
-    // 给外部脚本（如暂停菜单）调用的取消接口
-    public void CancelBuildFromExternal()
-    {
-        if (currentState != BuildState.Idle)
-        {
-            CancelBuild();
-        }
+        base.CancelBuild();
     }
 
-    private void ExitBuildMode()
+    protected override void DrawFloatingTooltip()
     {
-        currentState = BuildState.Idle;
-        
-        // 如果想在建完之后立刻自动把跑道菜单唤出来，可以通过查找 FindManager 激活
-        // 或者抛出一个事件。这里简单的做法是找到被隐藏的 Manager 重新开启（由于物体失活，FindObjectOfType 不一定管用，
-        // 我们可以寻找叫 "Environment_Window" 或同名画布/父节点的物体，或者直接不管它，等玩家用 UI 快捷键重新唤出）。
-    }
-
-    // 将屏幕鼠标坐标转化为绝对的海平面(Y=0)世界坐标，并加上网格依附（自动四舍五入到整数）
-    private Vector3? GetMouseGroundPosition()
-    {
-        if (Camera.main == null) return null;
-
-        Vector2 mousePos = Mouse.current.position.ReadValue();
-        Ray ray = Camera.main.ScreenPointToRay(mousePos);
-
-        // 方案：最稳妥的数学平面相交法，因为海平面在 Y=0
-        Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
-        if (groundPlane.Raycast(ray, out float enterDistance))
-        {
-            Vector3 rawPoint = ray.GetPoint(enterDistance);
-            
-            // 网格依附功能 (Grid Snapping) -> 强行将 X 和 Z 四舍五入到最近的整数 (1m一个格子)
-            rawPoint.x = Mathf.Round(rawPoint.x);
-            rawPoint.z = Mathf.Round(rawPoint.z);
-            rawPoint.y = 0f; // 确保 Y 必须为绝对的 0
-
-            return rawPoint;
-        }
-
-        return null; // 比如鼠标仰视天空时
-    }
-
-    // 临时 GUI 用来显示文字提示
-    private void OnGUI()
-    {
-        if (!string.IsNullOrEmpty(tooltip) && currentState != BuildState.Idle)
-        {
-            GUIStyle style = new GUIStyle();
-            style.fontSize = 28;
-            style.fontStyle = FontStyle.Bold;
-            style.normal.textColor = Color.yellow;
-            style.alignment = TextAnchor.MiddleCenter;
-
-            // 在屏幕正上方居中绘制提示
-            Rect rect = new Rect(0, 50, Screen.width, 100);
-            GUI.Label(rect, tooltip, style);
-        }
-        else if (!string.IsNullOrEmpty(tooltip)) 
-        {
-            // 建造完成/取消后延时几秒的提示可以画在这里，或者直接被清空
-            GUIStyle style = new GUIStyle();
-            style.fontSize = 24;
-            style.normal.textColor = Color.white;
-            GUI.Label(new Rect(20, 100, 400, 100), tooltip, style);
-        }
 
         // 绘制鼠标跟随的浮动提示（跑道等级与长度）
         if (currentState == BuildState.PlacingEnd)
