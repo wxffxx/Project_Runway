@@ -33,7 +33,21 @@ public class PlayerController : MonoBehaviour
     public float mouseSensitivity = 100f;
     public Transform cameraTransform;
 
+    [Header("Camera FOV")]
+    public float fovDefault = 60f;
+    public float fovSprint = 70f;
+    public float fovTransitionSpeed = 8f;
+
+    [Header("Head Bob")]
+    public float bobFrequency = 2f;
+    public float bobAmplitude = 0.05f;
+
+    [Header("Landing")]
+    public float landingDipAmount = 0.08f;
+    public float landingDipSpeed = 12f;
+
     private CharacterController controller;
+    private Camera cam;
     private Vector3 velocity;
     private bool isGrounded;
     private bool jumpQueued;
@@ -48,6 +62,14 @@ public class PlayerController : MonoBehaviour
     private float targetHeight;
 
     private float xRotation = 0f;
+
+    private float bobTimer;
+    private float bobOffset;
+    private float landingDip;
+    private float cameraBaseY;
+
+    /// <summary>Stamina as 0–1, useful for UI fill bars.</summary>
+    public float StaminaNormalized => maxStamina > 0f ? stamina / maxStamina : 0f;
 
     void OnValidate()
     {
@@ -64,6 +86,9 @@ public class PlayerController : MonoBehaviour
         staminaRecoveryPerSecond = Mathf.Max(0f, staminaRecoveryPerSecond);
         sprintRecoveryDelay = Mathf.Max(0f, sprintRecoveryDelay);
         jumpCutMultiplier = Mathf.Clamp01(jumpCutMultiplier);
+        fovSprint = Mathf.Max(fovDefault, fovSprint);
+        bobAmplitude = Mathf.Max(0f, bobAmplitude);
+        landingDipAmount = Mathf.Max(0f, landingDipAmount);
     }
 
     void Start()
@@ -75,6 +100,14 @@ public class PlayerController : MonoBehaviour
 
         if (cameraTransform == null && Camera.main != null)
             cameraTransform = Camera.main.transform;
+
+        if (cameraTransform != null)
+        {
+            cam = cameraTransform.GetComponent<Camera>();
+            cameraBaseY = cameraTransform.localPosition.y;
+            if (cam != null)
+                cam.fieldOfView = fovDefault;
+        }
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -97,6 +130,7 @@ public class PlayerController : MonoBehaviour
         HandleJump();
         UpdateStamina();
         ApplyGravity();
+        HandleCameraEffects();
     }
 
     void HandleMouseLook()
@@ -121,7 +155,12 @@ public class PlayerController : MonoBehaviour
         if (isGrounded)
         {
             if (!wasGrounded)
+            {
+                // Trigger landing dip scaled by fall speed (capped to avoid extreme values)
+                float fallSpeed = Mathf.Abs(velocity.y);
+                landingDip = landingDipAmount * Mathf.Clamp(fallSpeed / 10f, 0.3f, 1f);
                 jumpQueued = false;
+            }
 
             coyoteTimer = coyoteTime;
             if (velocity.y < 0f)
@@ -213,6 +252,43 @@ public class PlayerController : MonoBehaviour
     {
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
+    }
+
+    void HandleCameraEffects()
+    {
+        if (cameraTransform == null) return;
+
+        // --- Sprint FOV ---
+        if (cam != null)
+        {
+            bool isSprinting = !isCrouching && isGrounded && GetCurrentHorizontalSpeed() > moveSpeed + 0.5f;
+            float targetFov = isSprinting ? fovSprint : fovDefault;
+            cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, fovTransitionSpeed * Time.deltaTime);
+        }
+
+        // --- Head Bob ---
+        bool isMovingOnGround = isGrounded &&
+            new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
+
+        if (isMovingOnGround)
+        {
+            float speedRatio = GetCurrentHorizontalSpeed() / moveSpeed;
+            bobTimer += Time.deltaTime * bobFrequency * speedRatio;
+            bobOffset = Mathf.Sin(bobTimer * 2f * Mathf.PI) * bobAmplitude;
+        }
+        else
+        {
+            bobTimer = 0f;
+            bobOffset = Mathf.Lerp(bobOffset, 0f, Time.deltaTime * 8f);
+        }
+
+        // --- Landing Dip Recovery ---
+        landingDip = Mathf.Lerp(landingDip, 0f, landingDipSpeed * Time.deltaTime);
+
+        // Apply combined vertical offset to camera local position
+        Vector3 localPos = cameraTransform.localPosition;
+        localPos.y = cameraBaseY + bobOffset - landingDip;
+        cameraTransform.localPosition = localPos;
     }
 
     void SyncControllerCenter(float height)
