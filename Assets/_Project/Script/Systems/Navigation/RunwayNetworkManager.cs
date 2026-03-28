@@ -11,6 +11,10 @@ namespace PP_RY.Systems.Navigation
         // 全局存储的所有跑道数据（纯数据图网络）
         [HideInInspector]
         public List<RunwayData> allRunways = new List<RunwayData>();
+        
+        // 全局存储的停机位网络
+        [HideInInspector]
+        public List<GateData> allGates = new List<GateData>();
 
         void Awake()
         {
@@ -23,6 +27,13 @@ namespace PP_RY.Systems.Navigation
         {
             allRunways.Add(newData);
             Debug.Log($"【寻路网络】 已注册跑道 {newData.runwayName}, 长度 {newData.length}m, 包含 {newData.centerlineNodes.Count} 个主线节点。");
+        }
+
+        // 把建造器生成的 GateData (带推车路线) 存入总网
+        public void RegisterGate(GateData newData)
+        {
+            allGates.Add(newData);
+            Debug.Log($"【停机位网络】 已注册停机位 {newData.gateName}");
         }
 
 #if UNITY_EDITOR
@@ -61,6 +72,31 @@ namespace PP_RY.Systems.Navigation
                         // 普通的 100m 间隔点用绿色小圆圈
                         Gizmos.color = Color.green;
                         Gizmos.DrawSphere(node.position, 1.0f);
+                    }
+                }
+            }
+
+            // 画停机位相关节点与牵引车推出黄线
+            if (allGates != null)
+            {
+                foreach (var gate in allGates)
+                {
+                    if (gate.gateNode != null)
+                    {
+                        // 停机位本体圆点
+                        Gizmos.color = Color.blue;
+                        Gizmos.DrawSphere(gate.gateNode.position, 1.8f);
+
+                        // 牵引车推出双向虚线 (Purple / Magenta)
+                        if (gate.pushbackEndNode != null)
+                        {
+                            Gizmos.color = Color.magenta;
+                            Gizmos.DrawLine(gate.gateNode.position, gate.pushbackEndNode.position);
+                            
+                            // 在推出终点画个明显的小方块作为停靠接驳口标记
+                            Gizmos.color = Color.yellow;
+                            Gizmos.DrawCube(gate.pushbackEndNode.position, new Vector3(1f, 0.5f, 1f));
+                        }
                     }
                 }
             }
