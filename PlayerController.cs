@@ -46,6 +46,15 @@ public class PlayerController : MonoBehaviour
     public float landingDipAmount = 0.08f;
     public float landingDipSpeed = 12f;
 
+    [Header("Double Jump")]
+    public int maxJumpCount = 2;
+    public float doubleJumpForce = 7f;
+
+    [Header("Slide")]
+    public float slideSpeed = 14f;
+    public float slideDuration = 0.6f;
+    public float slideFovBoost = 10f;
+
     private CharacterController controller;
     private Camera cam;
     private Vector3 velocity;
@@ -68,8 +77,16 @@ public class PlayerController : MonoBehaviour
     private float landingDip;
     private float cameraBaseY;
 
+    private int jumpCount;
+    private bool isSliding;
+    private float slideTimer;
+    private Vector3 slideDirection;
+
     /// <summary>Stamina as 0–1, useful for UI fill bars.</summary>
     public float StaminaNormalized => maxStamina > 0f ? stamina / maxStamina : 0f;
+    public bool IsGrounded => isGrounded;
+    public bool IsCrouching => isCrouching;
+    public bool IsSliding => isSliding;
 
     void OnValidate()
     {
@@ -89,6 +106,10 @@ public class PlayerController : MonoBehaviour
         fovSprint = Mathf.Max(fovDefault, fovSprint);
         bobAmplitude = Mathf.Max(0f, bobAmplitude);
         landingDipAmount = Mathf.Max(0f, landingDipAmount);
+        maxJumpCount = Mathf.Max(1, maxJumpCount);
+        doubleJumpForce = Mathf.Max(0f, doubleJumpForce);
+        slideSpeed = Mathf.Max(moveSpeed, slideSpeed);
+        slideDuration = Mathf.Max(0.1f, slideDuration);
     }
 
     void Start()
@@ -126,6 +147,7 @@ public class PlayerController : MonoBehaviour
         HandleMouseLook();
         HandleGroundCheck();
         HandleCrouch();
+        HandleSlide();
         HandleMovement();
         HandleJump();
         UpdateStamina();
@@ -156,10 +178,10 @@ public class PlayerController : MonoBehaviour
         {
             if (!wasGrounded)
             {
-                // Trigger landing dip scaled by fall speed (capped to avoid extreme values)
                 float fallSpeed = Mathf.Abs(velocity.y);
                 landingDip = landingDipAmount * Mathf.Clamp(fallSpeed / 10f, 0.3f, 1f);
                 jumpQueued = false;
+                jumpCount = 0;
             }
 
             coyoteTimer = coyoteTime;
@@ -209,8 +231,33 @@ public class PlayerController : MonoBehaviour
         return !Physics.SphereCast(origin, radius, Vector3.up, out _, castDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
     }
 
+    void HandleSlide()
+    {
+        bool sprintInput = Input.GetKey(KeyCode.LeftShift) && isGrounded && stamina > 0f;
+        bool crouchInput = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.C);
+
+        if (!isSliding && sprintInput && crouchInput && GetCurrentHorizontalSpeed() > moveSpeed + 0.5f)
+        {
+            isSliding = true;
+            slideTimer = slideDuration;
+            slideDirection = transform.forward;
+        }
+
+        if (isSliding)
+        {
+            slideTimer -= Time.deltaTime;
+            float t = slideTimer / slideDuration;
+            controller.Move(slideDirection * (slideSpeed * t * Time.deltaTime));
+
+            if (slideTimer <= 0f || !isGrounded)
+                isSliding = false;
+        }
+    }
+
     void HandleMovement()
     {
+        if (isSliding) return;
+
         float moveX = Input.GetAxis("Horizontal");
         float moveZ = Input.GetAxis("Vertical");
         Vector3 inputDirection = new Vector3(moveX, 0f, moveZ);
@@ -235,13 +282,16 @@ public class PlayerController : MonoBehaviour
             jumpBufferTimer -= Time.deltaTime;
         }
 
-        bool canJump = coyoteTimer > 0f && !isCrouching;
+        bool canJump = (coyoteTimer > 0f || jumpCount < maxJumpCount) && !isCrouching && !isSliding;
 
         if (jumpBufferTimer > 0f && canJump)
         {
-            velocity.y = Mathf.Sqrt(jumpForce * -2f * gravity);
+            bool isFirstJump = coyoteTimer > 0f;
+            float force = isFirstJump ? jumpForce : doubleJumpForce;
+            velocity.y = Mathf.Sqrt(force * -2f * gravity);
             jumpBufferTimer = 0f;
             coyoteTimer = 0f;
+            jumpCount++;
         }
 
         if (Input.GetButtonUp("Jump") && velocity.y > 0f)
@@ -258,11 +308,13 @@ public class PlayerController : MonoBehaviour
     {
         if (cameraTransform == null) return;
 
-        // --- Sprint FOV ---
+        // --- Sprint / Slide FOV ---
         if (cam != null)
         {
             bool isSprinting = !isCrouching && isGrounded && GetCurrentHorizontalSpeed() > moveSpeed + 0.5f;
-            float targetFov = isSprinting ? fovSprint : fovDefault;
+            float targetFov = isSliding ? fovSprint + slideFovBoost
+                            : isSprinting ? fovSprint
+                            : fovDefault;
             cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, fovTransitionSpeed * Time.deltaTime);
         }
 
