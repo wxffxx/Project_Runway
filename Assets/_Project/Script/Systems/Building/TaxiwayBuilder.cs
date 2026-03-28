@@ -28,8 +28,6 @@ public class TaxiwayBuilder : BaseBuilder
     // ghostShoulderObj 负责宽大泛黄/浅灰的道肩，比道面更低。
     private GameObject ghostCoreObj;
     private GameObject ghostShoulderObj;
-    
-    private GameObject ghostShoulderObj;
 
     void Awake()
     {
