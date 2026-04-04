@@ -38,6 +38,13 @@ public class RunwayBuilder : BaseBuilder
 
     protected override void HandlePlacingStart()
     {
+        // 允许右键直接取消当前建造
+        if (Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame)
+        {
+            CancelBuild();
+            return;
+        }
+
         if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
         {
             Vector3? hitPos = GetMouseGroundPosition();
@@ -64,6 +71,13 @@ public class RunwayBuilder : BaseBuilder
 
     protected override void HandlePlacingEnd()
     {
+        // 允许右键直接取消当前建造（含幽灵模型清理）
+        if (Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame)
+        {
+            CancelBuild();
+            return;
+        }
+
         Vector3? hitPos = GetMouseGroundPosition();
         if (hitPos.HasValue)
         {
