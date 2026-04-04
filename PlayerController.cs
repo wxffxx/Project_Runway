@@ -38,6 +38,10 @@ public class PlayerController : MonoBehaviour
     public float fovSprint = 70f;
     public float fovTransitionSpeed = 8f;
 
+    [Header("Camera Tilt")]
+    public float tiltAngle = 5f;
+    public float tiltSpeed = 8f;
+
     [Header("Head Bob")]
     public float bobFrequency = 2f;
     public float bobAmplitude = 0.05f;
@@ -55,6 +59,24 @@ public class PlayerController : MonoBehaviour
     public float slideDuration = 0.6f;
     public float slideFovBoost = 10f;
 
+    [Header("Dash")]
+    public KeyCode dashKey = KeyCode.LeftAlt;
+    public float dashSpeed = 22f;
+    public float dashDuration = 0.15f;
+    public float dashCooldown = 1.5f;
+    public float dashStaminaCost = 1f;
+
+    [Header("Health & Fall Damage")]
+    public float maxHealth = 100f;
+    public float fallDamageMinSpeed = 10f;
+    public float fallDamageMaxSpeed = 25f;
+    public float fallDamageMax = 50f;
+
+    [Header("Footstep")]
+    public float footstepWalkInterval = 0.5f;
+    public float footstepSprintMultiplier = 0.6f;
+    public UnityEvent onFootstep;
+
     private CharacterController controller;
     private Camera cam;
     private Vector3 velocity;
@@ -71,6 +93,7 @@ public class PlayerController : MonoBehaviour
     private float targetHeight;
 
     private float xRotation = 0f;
+    private float currentTilt = 0f;
 
     private float bobTimer;
     private float bobOffset;
@@ -82,11 +105,26 @@ public class PlayerController : MonoBehaviour
     private float slideTimer;
     private Vector3 slideDirection;
 
+    private bool isDashing;
+    private float dashTimer;
+    private float dashCooldownTimer;
+    private Vector3 dashDirection;
+
+    private float health;
+    private float peakFallSpeed;
+
+    private float footstepTimer;
+
     /// <summary>Stamina as 0–1, useful for UI fill bars.</summary>
     public float StaminaNormalized => maxStamina > 0f ? stamina / maxStamina : 0f;
+    /// <summary>Health as 0–1, useful for UI fill bars.</summary>
+    public float HealthNormalized => maxHealth > 0f ? health / maxHealth : 0f;
+    public float Health => health;
     public bool IsGrounded => isGrounded;
     public bool IsCrouching => isCrouching;
     public bool IsSliding => isSliding;
+    public bool IsDashing => isDashing;
+    public bool IsDead => health <= 0f;
 
     void OnValidate()
     {
@@ -110,12 +148,19 @@ public class PlayerController : MonoBehaviour
         doubleJumpForce = Mathf.Max(0f, doubleJumpForce);
         slideSpeed = Mathf.Max(moveSpeed, slideSpeed);
         slideDuration = Mathf.Max(0.1f, slideDuration);
+        dashSpeed = Mathf.Max(0f, dashSpeed);
+        dashDuration = Mathf.Max(0.05f, dashDuration);
+        dashCooldown = Mathf.Max(0f, dashCooldown);
+        maxHealth = Mathf.Max(1f, maxHealth);
+        fallDamageMaxSpeed = Mathf.Max(fallDamageMinSpeed, fallDamageMaxSpeed);
+        footstepWalkInterval = Mathf.Max(0.1f, footstepWalkInterval);
     }
 
     void Start()
     {
         controller = GetComponent<CharacterController>();
         stamina = maxStamina;
+        health = maxHealth;
         targetHeight = standHeight;
         SyncControllerCenter(standHeight);
 
@@ -136,6 +181,8 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        if (IsDead) return;
+
         if (Input.GetKeyDown(KeyCode.Escape))
             SetCursorState(false);
         else if (Input.GetMouseButtonDown(0))
@@ -148,11 +195,13 @@ public class PlayerController : MonoBehaviour
         HandleGroundCheck();
         HandleCrouch();
         HandleSlide();
+        HandleDash();
         HandleMovement();
         HandleJump();
         UpdateStamina();
         ApplyGravity();
         HandleCameraEffects();
+        HandleFootsteps();
     }
 
     void HandleMouseLook()
@@ -174,12 +223,18 @@ public class PlayerController : MonoBehaviour
         wasGrounded = isGrounded;
         isGrounded = controller.isGrounded;
 
+        // Track peak fall speed for fall damage calculation
+        if (!isGrounded && velocity.y < 0f)
+            peakFallSpeed = Mathf.Max(peakFallSpeed, Mathf.Abs(velocity.y));
+
         if (isGrounded)
         {
             if (!wasGrounded)
             {
                 float fallSpeed = Mathf.Abs(velocity.y);
                 landingDip = landingDipAmount * Mathf.Clamp(fallSpeed / 10f, 0.3f, 1f);
+                ApplyFallDamage(peakFallSpeed);
+                peakFallSpeed = 0f;
                 jumpQueued = false;
                 jumpCount = 0;
             }
@@ -192,6 +247,15 @@ public class PlayerController : MonoBehaviour
         {
             coyoteTimer -= Time.deltaTime;
         }
+    }
+
+    void ApplyFallDamage(float fallSpeed)
+    {
+        if (fallSpeed <= fallDamageMinSpeed) return;
+
+        float t = Mathf.InverseLerp(fallDamageMinSpeed, fallDamageMaxSpeed, fallSpeed);
+        float damage = t * fallDamageMax;
+        health = Mathf.Max(0f, health - damage);
     }
 
     void HandleCrouch()
@@ -254,9 +318,41 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    void HandleDash()
+    {
+        if (dashCooldownTimer > 0f)
+            dashCooldownTimer -= Time.deltaTime;
+
+        if (!isDashing && Input.GetKeyDown(dashKey) && !isCrouching && dashCooldownTimer <= 0f && stamina >= dashStaminaCost)
+        {
+            float moveX = Input.GetAxisRaw("Horizontal");
+            float moveZ = Input.GetAxisRaw("Vertical");
+            Vector3 input = new Vector3(moveX, 0f, moveZ);
+
+            dashDirection = input.sqrMagnitude > 0.01f
+                ? (transform.right * input.x + transform.forward * input.z).normalized
+                : transform.forward;
+
+            isDashing = true;
+            dashTimer = dashDuration;
+            stamina = Mathf.Max(0f, stamina - dashStaminaCost);
+            dashCooldownTimer = dashCooldown;
+            velocity.y = 0f;
+        }
+
+        if (isDashing)
+        {
+            dashTimer -= Time.deltaTime;
+            controller.Move(dashDirection * (dashSpeed * Time.deltaTime));
+
+            if (dashTimer <= 0f)
+                isDashing = false;
+        }
+    }
+
     void HandleMovement()
     {
-        if (isSliding) return;
+        if (isSliding || isDashing) return;
 
         float moveX = Input.GetAxis("Horizontal");
         float moveZ = Input.GetAxis("Vertical");
@@ -282,7 +378,7 @@ public class PlayerController : MonoBehaviour
             jumpBufferTimer -= Time.deltaTime;
         }
 
-        bool canJump = (coyoteTimer > 0f || jumpCount < maxJumpCount) && !isCrouching && !isSliding;
+        bool canJump = (coyoteTimer > 0f || jumpCount < maxJumpCount) && !isCrouching && !isSliding && !isDashing;
 
         if (jumpBufferTimer > 0f && canJump)
         {
@@ -300,6 +396,8 @@ public class PlayerController : MonoBehaviour
 
     void ApplyGravity()
     {
+        if (isDashing) return;
+
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
     }
@@ -308,21 +406,27 @@ public class PlayerController : MonoBehaviour
     {
         if (cameraTransform == null) return;
 
-        // --- Sprint / Slide FOV ---
+        // --- Sprint / Slide / Dash FOV ---
         if (cam != null)
         {
             bool isSprinting = !isCrouching && isGrounded && GetCurrentHorizontalSpeed() > moveSpeed + 0.5f;
-            float targetFov = isSliding ? fovSprint + slideFovBoost
+            float targetFov = isDashing ? fovSprint + slideFovBoost
+                            : isSliding ? fovSprint + slideFovBoost
                             : isSprinting ? fovSprint
                             : fovDefault;
             cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, fovTransitionSpeed * Time.deltaTime);
         }
 
+        // --- Camera Tilt (strafe lean) ---
+        float strafeInput = Input.GetAxisRaw("Horizontal");
+        float targetTilt = -strafeInput * tiltAngle;
+        currentTilt = Mathf.Lerp(currentTilt, targetTilt, tiltSpeed * Time.deltaTime);
+
         // --- Head Bob ---
         bool isMovingOnGround = isGrounded &&
             new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
 
-        if (isMovingOnGround)
+        if (isMovingOnGround && !isSliding && !isDashing)
         {
             float speedRatio = GetCurrentHorizontalSpeed() / moveSpeed;
             bobTimer += Time.deltaTime * bobFrequency * speedRatio;
@@ -337,10 +441,35 @@ public class PlayerController : MonoBehaviour
         // --- Landing Dip Recovery ---
         landingDip = Mathf.Lerp(landingDip, 0f, landingDipSpeed * Time.deltaTime);
 
-        // Apply combined vertical offset to camera local position
+        // Apply combined vertical offset + tilt to camera local position/rotation
         Vector3 localPos = cameraTransform.localPosition;
         localPos.y = cameraBaseY + bobOffset - landingDip;
         cameraTransform.localPosition = localPos;
+
+        Quaternion pitchRotation = Quaternion.Euler(xRotation, 0f, currentTilt);
+        cameraTransform.localRotation = pitchRotation;
+    }
+
+    void HandleFootsteps()
+    {
+        bool isMovingOnGround = isGrounded && !isSliding && !isDashing &&
+            new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
+
+        if (!isMovingOnGround)
+        {
+            footstepTimer = 0f;
+            return;
+        }
+
+        float isSprinting = GetCurrentHorizontalSpeed() > moveSpeed + 0.5f ? footstepSprintMultiplier : 1f;
+        float interval = footstepWalkInterval * isSprinting;
+
+        footstepTimer -= Time.deltaTime;
+        if (footstepTimer <= 0f)
+        {
+            onFootstep?.Invoke();
+            footstepTimer = interval;
+        }
     }
 
     void SyncControllerCenter(float height)
@@ -394,5 +523,15 @@ public class PlayerController : MonoBehaviour
     {
         Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
         Cursor.visible = !locked;
+    }
+
+    /// <summary>Restore health. Clamped to maxHealth.</summary>
+    public void Heal(float amount) => health = Mathf.Min(maxHealth, health + amount);
+
+    /// <summary>Deal damage. Returns true if this caused death.</summary>
+    public bool TakeDamage(float amount)
+    {
+        health = Mathf.Max(0f, health - amount);
+        return IsDead;
     }
 }
