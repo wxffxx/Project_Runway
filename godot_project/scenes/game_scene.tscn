@@ -1,0 +1,625 @@
+[gd_scene load_steps=30 format=3]
+
+[ext_resource type="Script" path="res://scripts/core/camera/camera_movement.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/systems/building/runway_builder.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/systems/building/taxiway_builder.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/systems/building/gate_builder.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/systems/building/road_builder.gd" id="5"]
+[ext_resource type="Script" path="res://scripts/systems/building/terminal_floor_builder.gd" id="6"]
+[ext_resource type="Script" path="res://scripts/systems/building/grid_placement.gd" id="7"]
+[ext_resource type="Script" path="res://scripts/systems/navigation/road_vehicle_spawner.gd" id="8"]
+[ext_resource type="Script" path="res://scripts/systems/ui/pause_menu_manager.gd" id="9"]
+[ext_resource type="Script" path="res://scripts/systems/ui/settings_manager.gd" id="10"]
+[ext_resource type="Script" path="res://scripts/systems/ui/building_menu_manager.gd" id="11"]
+[ext_resource type="Script" path="res://scripts/systems/ui/runway_menu_manager.gd" id="12"]
+[ext_resource type="Script" path="res://scripts/systems/ui/taxiway_menu_manager.gd" id="13"]
+[ext_resource type="Script" path="res://scripts/systems/ui/fps_counter.gd" id="14"]
+
+; --- 天空 & 环境 ---
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat_1"]
+sky_top_color = Color(0.35, 0.55, 0.9, 1)
+sky_horizon_color = Color(0.65, 0.75, 0.9, 1)
+ground_bottom_color = Color(0.15, 0.18, 0.12, 1)
+ground_horizon_color = Color(0.55, 0.6, 0.5, 1)
+sun_angle_max = 30.0
+
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("SkyMat_1")
+
+[sub_resource type="Environment" id="Env_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+ambient_light_source = 2
+ambient_light_color = Color(0.6, 0.65, 0.7, 1)
+ambient_light_energy = 0.6
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.7, 0.75, 0.8, 1)
+fog_density = 0.0005
+
+; --- 地面材质 ---
+[sub_resource type="StandardMaterial3D" id="GroundMat_1"]
+albedo_color = Color(0.28, 0.38, 0.22, 1)
+roughness = 0.95
+
+[sub_resource type="BoxMesh" id="BoxMesh_ground"]
+size = Vector3(2000, 0.1, 2000)
+material = SubResource("GroundMat_1")
+
+[sub_resource type="BoxShape3D" id="BoxShape_ground"]
+size = Vector3(2000, 0.1, 2000)
+
+; --- 装饰物材质 ---
+[sub_resource type="StandardMaterial3D" id="Mat_RedBox"]
+albedo_color = Color(0.85, 0.2, 0.15, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_BlueBox"]
+albedo_color = Color(0.15, 0.35, 0.85, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_YellowBox"]
+albedo_color = Color(0.9, 0.8, 0.15, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_GreenCyl"]
+albedo_color = Color(0.1, 0.7, 0.3, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_OrangeCyl"]
+albedo_color = Color(0.95, 0.55, 0.1, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_PurpleCyl"]
+albedo_color = Color(0.6, 0.2, 0.8, 1)
+
+; --- 装饰物网格 ---
+[sub_resource type="BoxMesh" id="BoxMesh_deco"]
+size = Vector3(4, 4, 4)
+
+[sub_resource type="CylinderMesh" id="CylMesh_deco"]
+top_radius = 2.0
+bottom_radius = 2.0
+height = 6.0
+
+; ============================================================
+; ROOT: 游戏主场景
+; ============================================================
+[node name="GameScene" type="Node3D"]
+
+; ============================================================
+; 环境光照 + 天空盒
+; ============================================================
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.433, 0.25, 0, 0.5, 0.866, -0.5, -0.75, 0.433, 0, 50, 0)
+shadow_enabled = true
+light_energy = 1.2
+light_color = Color(1.0, 0.96, 0.9, 1)
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_1")
+
+; ============================================================
+; 相机 (挂载 camera_movement.gd)
+; ============================================================
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707, 0.707, 0, -0.707, 0.707, 0, 30, 30)
+script = ExtResource("1")
+move_speed = 30.0
+min_y = 2.0
+max_y = 200.0
+
+; ============================================================
+; 地面 (绿色草地材质 + StaticBody3D 用于射线检测)
+; ============================================================
+[node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="GroundMesh" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("BoxMesh_ground")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
+
+[node name="GroundCollision" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("BoxShape_ground")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
+
+; ============================================================
+; 装饰物 (方块 + 圆柱体, 用于空间参考)
+; ============================================================
+[node name="Decorations" type="Node3D" parent="."]
+
+[node name="RedBox" type="MeshInstance3D" parent="Decorations"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20, 2, -15)
+mesh = SubResource("BoxMesh_deco")
+material_override = SubResource("Mat_RedBox")
+
+[node name="BlueBox" type="MeshInstance3D" parent="Decorations"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 2, 25)
+mesh = SubResource("BoxMesh_deco")
+material_override = SubResource("Mat_BlueBox")
+
+[node name="YellowBox" type="MeshInstance3D" parent="Decorations"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 50, 2, 40)
+mesh = SubResource("BoxMesh_deco")
+material_override = SubResource("Mat_YellowBox")
+
+[node name="GreenCylinder" type="MeshInstance3D" parent="Decorations"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 3, -40)
+mesh = SubResource("CylMesh_deco")
+material_override = SubResource("Mat_GreenCyl")
+
+[node name="OrangeCylinder" type="MeshInstance3D" parent="Decorations"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 3, -30)
+mesh = SubResource("CylMesh_deco")
+material_override = SubResource("Mat_OrangeCyl")
+
+[node name="PurpleCylinder" type="MeshInstance3D" parent="Decorations"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -45, 3, 10)
+mesh = SubResource("CylMesh_deco")
+material_override = SubResource("Mat_PurpleCyl")
+
+; ============================================================
+; 建造系统 (所有 Builder 挂载在此节点下)
+; ============================================================
+[node name="Builders" type="Node3D" parent="."]
+
+[node name="RunwayBuilder" type="Node3D" parent="Builders" groups=["builders", "runway_builder"]]
+script = ExtResource("2")
+
+[node name="FloatingLabel" type="Label" parent="Builders/RunwayBuilder"]
+offset_right = 200.0
+offset_bottom = 80.0
+visible = false
+
+[node name="TaxiwayBuilder" type="Node3D" parent="Builders" groups=["builders", "taxiway_builder"]]
+script = ExtResource("3")
+
+[node name="FloatingLabel" type="Label" parent="Builders/TaxiwayBuilder"]
+offset_right = 200.0
+offset_bottom = 80.0
+visible = false
+
+[node name="GateBuilder" type="Node3D" parent="Builders" groups=["builders", "gate_builder"]]
+script = ExtResource("4")
+
+[node name="FloatingLabel" type="Label" parent="Builders/GateBuilder"]
+offset_right = 200.0
+offset_bottom = 80.0
+visible = false
+
+[node name="RoadBuilder" type="Node3D" parent="Builders" groups=["builders", "road_builder"]]
+script = ExtResource("5")
+
+[node name="FloatingLabel" type="Label" parent="Builders/RoadBuilder"]
+offset_right = 200.0
+offset_bottom = 80.0
+visible = false
+
+[node name="TerminalFloorBuilder" type="Node3D" parent="Builders" groups=["builders"]]
+script = ExtResource("6")
+
+[node name="FloatingLabel" type="Label" parent="Builders/TerminalFloorBuilder"]
+offset_right = 200.0
+offset_bottom = 80.0
+visible = false
+
+[node name="GridPlacement" type="Node3D" parent="Builders"]
+script = ExtResource("7")
+
+; ============================================================
+; 导航系统
+; ============================================================
+[node name="Navigation" type="Node3D" parent="."]
+
+[node name="RoadVehicleSpawner" type="Node3D" parent="Navigation"]
+script = ExtResource("8")
+spawn_interval = 3.0
+vehicle_speed = 15.0
+
+; ============================================================
+; UI 层 (CanvasLayer 确保 UI 始终在最上层)
+; ============================================================
+[node name="UILayer" type="CanvasLayer" parent="."]
+
+; ---- 暂停菜单系统 ----
+[node name="PauseMenuManager" type="Control" parent="UILayer"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+process_mode = 2
+script = ExtResource("9")
+
+[node name="PauseMainPanel" type="Panel" parent="UILayer/PauseMenuManager"]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -180.0
+offset_right = 200.0
+offset_bottom = 180.0
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UILayer/PauseMenuManager/PauseMainPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 30.0
+offset_top = 30.0
+offset_right = -30.0
+offset_bottom = -30.0
+alignment = 1
+
+[node name="TitleLabel" type="Label" parent="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer"]
+layout_mode = 2
+text = "PAUSED"
+horizontal_alignment = 1
+
+[node name="Spacer1" type="Control" parent="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 20)
+
+[node name="ResumeButton" type="Button" parent="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer"]
+layout_mode = 2
+text = "Resume"
+
+[node name="SettingsButton" type="Button" parent="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer"]
+layout_mode = 2
+text = "Settings"
+
+[node name="ReturnToMenuButton" type="Button" parent="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer"]
+layout_mode = 2
+text = "Return to Main Menu"
+
+[node name="QuitButton" type="Button" parent="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer"]
+layout_mode = 2
+text = "Quit Game"
+
+; ---- 设置面板 ----
+[node name="SettingsPanel" type="Panel" parent="UILayer/PauseMenuManager"]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -350.0
+offset_top = -250.0
+offset_right = 350.0
+offset_bottom = 250.0
+
+[node name="SettingsManager" type="Control" parent="UILayer/PauseMenuManager/SettingsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("10")
+
+[node name="TabBar" type="HBoxContainer" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 10.0
+offset_bottom = 50.0
+offset_left = 10.0
+offset_right = -10.0
+
+[node name="TabDisplayBtn" type="Button" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/TabBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Display"
+
+[node name="TabControlsBtn" type="Button" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/TabBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Controls"
+
+[node name="TabGameBtn" type="Button" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/TabBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Game"
+
+[node name="DisplayPanel" type="VBoxContainer" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager"]
+layout_mode = 1
+offset_left = 20.0
+offset_top = 60.0
+offset_right = 680.0
+offset_bottom = 480.0
+
+[node name="ResLabel" type="Label" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+text = "Resolution"
+
+[node name="ResolutionDropdown" type="OptionButton" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+
+[node name="WinModeLabel" type="Label" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+text = "Window Mode"
+
+[node name="WindowModeDropdown" type="OptionButton" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+
+[node name="FPSLabel" type="Label" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+text = "Frame Rate"
+
+[node name="FramerateDropdown" type="OptionButton" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+
+[node name="ControlsPanel" type="VBoxContainer" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager"]
+visible = false
+layout_mode = 1
+offset_left = 20.0
+offset_top = 60.0
+offset_right = 680.0
+offset_bottom = 480.0
+
+[node name="SensLabel" type="Label" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/ControlsPanel"]
+layout_mode = 2
+text = "Mouse Sensitivity"
+
+[node name="MouseSensitivitySlider" type="HSlider" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/ControlsPanel"]
+layout_mode = 2
+min_value = 0.05
+max_value = 2.0
+step = 0.05
+value = 0.5
+
+[node name="MouseSensitivityLabel" type="Label" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/ControlsPanel"]
+layout_mode = 2
+text = "0.50"
+
+[node name="InvertYToggle" type="CheckBox" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/ControlsPanel"]
+layout_mode = 2
+text = "Invert Y Axis"
+
+[node name="GamePanel" type="VBoxContainer" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager"]
+visible = false
+layout_mode = 1
+offset_left = 20.0
+offset_top = 60.0
+offset_right = 680.0
+offset_bottom = 480.0
+
+[node name="ShowFPSToggle" type="CheckBox" parent="UILayer/PauseMenuManager/SettingsPanel/SettingsManager/GamePanel"]
+layout_mode = 2
+text = "Show FPS Counter"
+
+[node name="CloseSettingsButton" type="Button" parent="UILayer/PauseMenuManager/SettingsPanel"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -80.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 40.0
+text = "Close"
+
+; ---- 游戏内 UI (建造菜单等) ----
+[node name="InGameUI" type="Control" parent="UILayer"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+; 建造菜单管理器 (底部栏)
+[node name="BuildingMenuManager" type="Control" parent="UILayer/InGameUI"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -200.0
+script = ExtResource("11")
+
+[node name="MainCategoryBar" type="HBoxContainer" parent="UILayer/InGameUI/BuildingMenuManager"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 10.0
+offset_right = -10.0
+offset_bottom = 40.0
+
+[node name="FlightZoneButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/MainCategoryBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Flight Zone"
+
+[node name="PassengerZoneButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/MainCategoryBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Passenger Zone"
+
+[node name="LogisticsZoneButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/MainCategoryBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Logistics Zone"
+
+; 飞行区面板
+[node name="FlightZonePanel" type="Control" parent="UILayer/InGameUI/BuildingMenuManager"]
+layout_mode = 1
+offset_top = 45.0
+offset_right = 1920.0
+offset_bottom = 200.0
+
+[node name="SubCategoryBar" type="HBoxContainer" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 10.0
+offset_right = -10.0
+offset_bottom = 35.0
+
+[node name="RunwayButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/SubCategoryBar"]
+layout_mode = 2
+text = "Runway"
+
+[node name="TaxiwayButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/SubCategoryBar"]
+layout_mode = 2
+text = "Taxiway"
+
+[node name="HangarButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/SubCategoryBar"]
+layout_mode = 2
+text = "Gate/Hangar"
+
+; 跑道选择面板
+[node name="RunwayPanel" type="Control" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel"]
+offset_top = 40.0
+offset_right = 1920.0
+offset_bottom = 155.0
+
+[node name="RunwayMenuManager" type="Control" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("12")
+
+[node name="ButtonRow" type="HBoxContainer" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel/RunwayMenuManager"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 10.0
+offset_right = -10.0
+offset_top = 5.0
+offset_bottom = 40.0
+
+[node name="CatAButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel/RunwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat A (15m)"
+
+[node name="CatBButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel/RunwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat B (23m)"
+
+[node name="CatCButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel/RunwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat C (30m)"
+
+[node name="CatDButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel/RunwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat D (45m)"
+
+[node name="CatEButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel/RunwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat E (45m)"
+
+[node name="CatFButton" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel/RunwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat F (60m)"
+
+[node name="InfoLabel" type="Label" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/RunwayPanel/RunwayMenuManager"]
+layout_mode = 1
+offset_left = 10.0
+offset_top = 45.0
+offset_right = 700.0
+offset_bottom = 70.0
+text = "Click category to start building runway."
+
+; 滑行道选择面板
+[node name="TaxiwayPanel" type="Control" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel"]
+visible = false
+offset_top = 40.0
+offset_right = 1920.0
+offset_bottom = 155.0
+
+[node name="TaxiwayMenuManager" type="Control" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/TaxiwayPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("13")
+
+[node name="ButtonRow" type="HBoxContainer" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/TaxiwayPanel/TaxiwayMenuManager"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 10.0
+offset_right = -10.0
+offset_top = 5.0
+offset_bottom = 40.0
+
+[node name="BtnCategoryA" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/TaxiwayPanel/TaxiwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat A (7.5m)"
+
+[node name="BtnCategoryB" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/TaxiwayPanel/TaxiwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat B (10.5m)"
+
+[node name="BtnCategoryC" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/TaxiwayPanel/TaxiwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat C (15m)"
+
+[node name="BtnCategoryD" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/TaxiwayPanel/TaxiwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat D (18m)"
+
+[node name="BtnCategoryE" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/TaxiwayPanel/TaxiwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat E (23m)"
+
+[node name="BtnCategoryF" type="Button" parent="UILayer/InGameUI/BuildingMenuManager/FlightZonePanel/TaxiwayPanel/TaxiwayMenuManager/ButtonRow"]
+layout_mode = 2
+text = "Cat F (25m)"
+
+; 乘客区面板 (占位)
+[node name="PassengerZonePanel" type="Control" parent="UILayer/InGameUI/BuildingMenuManager"]
+visible = false
+offset_top = 45.0
+offset_right = 1920.0
+offset_bottom = 200.0
+
+[node name="PlaceholderLabel" type="Label" parent="UILayer/InGameUI/BuildingMenuManager/PassengerZonePanel"]
+layout_mode = 1
+offset_left = 20.0
+offset_top = 10.0
+offset_right = 400.0
+offset_bottom = 40.0
+text = "Passenger Zone - Coming Soon"
+
+; 后勤区面板 (占位)
+[node name="LogisticsZonePanel" type="Control" parent="UILayer/InGameUI/BuildingMenuManager"]
+visible = false
+offset_top = 45.0
+offset_right = 1920.0
+offset_bottom = 200.0
+
+[node name="PlaceholderLabel" type="Label" parent="UILayer/InGameUI/BuildingMenuManager/LogisticsZonePanel"]
+layout_mode = 1
+offset_left = 20.0
+offset_top = 10.0
+offset_right = 400.0
+offset_bottom = 40.0
+text = "Logistics Zone - Coming Soon"
+
+; 顶部提示栏
+[node name="TooltipBar" type="Label" parent="UILayer/InGameUI"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 20.0
+offset_bottom = 60.0
+horizontal_alignment = 1
+text = ""
+
+; ---- FPS 计数器 ----
+[node name="FPSCounter" type="Label" parent="UILayer"]
+layout_mode = 1
+anchors_preset = 0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 600.0
+offset_bottom = 35.0
+script = ExtResource("14")
+
+; ============================================================
+; 连接信号 (节点属性绑定)
+; ============================================================
+[connection signal="pressed" from="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer/ResumeButton" to="UILayer/PauseMenuManager" method="resume_game"]
+[connection signal="pressed" from="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer/SettingsButton" to="UILayer/PauseMenuManager" method="toggle_settings"]
+[connection signal="pressed" from="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer/ReturnToMenuButton" to="UILayer/PauseMenuManager" method="return_to_main_menu"]
+[connection signal="pressed" from="UILayer/PauseMenuManager/PauseMainPanel/VBoxContainer/QuitButton" to="UILayer/PauseMenuManager" method="quit_game"]
+[connection signal="pressed" from="UILayer/PauseMenuManager/SettingsPanel/CloseSettingsButton" to="UILayer/PauseMenuManager" method="close_settings"]

@@ -1,0 +1,17 @@
+# Godot 4 - Editor cache and imported data
+.godot/
+
+# Exported builds
+*.app/
+*.x86_64
+*.pck
+*.exe
+*.dmg
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace

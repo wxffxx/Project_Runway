@@ -1,0 +1,202 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/systems/ui/main_menu_manager.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/systems/ui/settings_manager.gd" id="2"]
+
+; ============================================================
+; ROOT: 主菜单场景
+; ============================================================
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1")
+
+; ---- 背景 ----
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.08, 0.08, 0.12, 1)
+
+; ---- 主按钮面板 ----
+[node name="MainButtonsPanel" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -160.0
+offset_right = 150.0
+offset_bottom = 160.0
+alignment = 1
+
+[node name="TitleLabel" type="Label" parent="MainButtonsPanel"]
+layout_mode = 2
+text = "PROJECT RUNWAY"
+horizontal_alignment = 1
+
+[node name="SubtitleLabel" type="Label" parent="MainButtonsPanel"]
+layout_mode = 2
+text = "Airport Management Simulator"
+horizontal_alignment = 1
+
+[node name="Spacer1" type="Control" parent="MainButtonsPanel"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 30)
+
+[node name="StartGameButton" type="Button" parent="MainButtonsPanel"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 45)
+text = "Start Game"
+
+[node name="LoadDemoButton" type="Button" parent="MainButtonsPanel"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 45)
+text = "Load Demo"
+
+[node name="OpenSettingsButton" type="Button" parent="MainButtonsPanel"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 45)
+text = "Settings"
+
+[node name="QuitGameButton" type="Button" parent="MainButtonsPanel"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 45)
+text = "Quit"
+
+; ---- 设置面板 ----
+[node name="SettingsPanel" type="Panel" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -350.0
+offset_top = -250.0
+offset_right = 350.0
+offset_bottom = 250.0
+
+[node name="SettingsManager" type="Control" parent="SettingsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("2")
+
+[node name="TabBar" type="HBoxContainer" parent="SettingsPanel/SettingsManager"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 50.0
+
+[node name="TabDisplayBtn" type="Button" parent="SettingsPanel/SettingsManager/TabBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Display"
+
+[node name="TabControlsBtn" type="Button" parent="SettingsPanel/SettingsManager/TabBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Controls"
+
+[node name="TabGameBtn" type="Button" parent="SettingsPanel/SettingsManager/TabBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Game"
+
+[node name="DisplayPanel" type="VBoxContainer" parent="SettingsPanel/SettingsManager"]
+layout_mode = 1
+offset_left = 20.0
+offset_top = 60.0
+offset_right = 680.0
+offset_bottom = 480.0
+
+[node name="ResLabel" type="Label" parent="SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+text = "Resolution"
+
+[node name="ResolutionDropdown" type="OptionButton" parent="SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+
+[node name="WinModeLabel" type="Label" parent="SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+text = "Window Mode"
+
+[node name="WindowModeDropdown" type="OptionButton" parent="SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+
+[node name="FPSLabel" type="Label" parent="SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+text = "Frame Rate"
+
+[node name="FramerateDropdown" type="OptionButton" parent="SettingsPanel/SettingsManager/DisplayPanel"]
+layout_mode = 2
+
+[node name="ControlsPanel" type="VBoxContainer" parent="SettingsPanel/SettingsManager"]
+visible = false
+layout_mode = 1
+offset_left = 20.0
+offset_top = 60.0
+offset_right = 680.0
+offset_bottom = 480.0
+
+[node name="SensLabel" type="Label" parent="SettingsPanel/SettingsManager/ControlsPanel"]
+layout_mode = 2
+text = "Mouse Sensitivity"
+
+[node name="MouseSensitivitySlider" type="HSlider" parent="SettingsPanel/SettingsManager/ControlsPanel"]
+layout_mode = 2
+min_value = 0.05
+max_value = 2.0
+step = 0.05
+value = 0.5
+
+[node name="MouseSensitivityLabel" type="Label" parent="SettingsPanel/SettingsManager/ControlsPanel"]
+layout_mode = 2
+text = "0.50"
+
+[node name="InvertYToggle" type="CheckBox" parent="SettingsPanel/SettingsManager/ControlsPanel"]
+layout_mode = 2
+text = "Invert Y Axis"
+
+[node name="GamePanel" type="VBoxContainer" parent="SettingsPanel/SettingsManager"]
+visible = false
+layout_mode = 1
+offset_left = 20.0
+offset_top = 60.0
+offset_right = 680.0
+offset_bottom = 480.0
+
+[node name="ShowFPSToggle" type="CheckBox" parent="SettingsPanel/SettingsManager/GamePanel"]
+layout_mode = 2
+text = "Show FPS Counter"
+
+[node name="CloseSettingsButton" type="Button" parent="SettingsPanel"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -80.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 40.0
+text = "Close"
+
+; ============================================================
+; 信号连接
+; ============================================================
+[connection signal="pressed" from="MainButtonsPanel/StartGameButton" to="." method="start_game"]
+[connection signal="pressed" from="MainButtonsPanel/LoadDemoButton" to="." method="load_demo"]
+[connection signal="pressed" from="MainButtonsPanel/OpenSettingsButton" to="." method="toggle_settings"]
+[connection signal="pressed" from="MainButtonsPanel/QuitGameButton" to="." method="quit_game"]
+[connection signal="pressed" from="SettingsPanel/CloseSettingsButton" to="." method="close_settings"]
