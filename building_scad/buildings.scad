@@ -82,3 +82,50 @@ module public_terminal() {
         translate([i+1, 20, 0]) cube([2, 4, 3]); 
     }
 }
+
+// ILS, Lights, etc.
+
+// light Mast
+module light_mast() {
+    color("darkgray") cylinder(h=15, r=0.3);
+    color("silver") translate([-1, -0.5, 15]) cube([2, 1, 0.5]);
+}
+
+// ILS
+module ils_array() {
+    color("red")
+    for(x = [0 : 2 : 20]) {
+        translate([x, 0, 0]) cylinder(h=1.5, r=0.1);
+        translate([x-0.5, -0.1, 1]) cube([1, 0.2, 0.5]);
+    }
+}
+
+// PAPI
+module papi_lights() {
+    color("white")
+    for(x = [0 : 2 : 6]) {
+        translate([x, 0, 0]) cube([1, 1, 0.5]);
+        translate([x+0.5, 0.5, -0.5]) cylinder(h=0.5, r=0.1);
+    }
+}
+
+// fuel tank
+module fuel_tank() {
+    color("silver")
+    cylinder(h=6, r=4);
+    // safety berm
+    color("gray")
+    difference() {
+        cylinder(h=1, r=6);
+        translate([0,0,-0.1]) cylinder(h=1.2, r=5.5);
+    }
+}
+
+// Surveillance Radar ASR
+module radar_tower() {
+    // base
+    color("darkgray") cylinder(h=20, r=2);
+    // turntable
+    color("silver") translate([0, 0, 20]) cylinder(h=2, r=2.5);
+    color("gray") translate([-3, -1, 22]) cube([6, 2, 4]);
+}
