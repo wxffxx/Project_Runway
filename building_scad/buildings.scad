@@ -129,3 +129,88 @@ module radar_tower() {
     color("silver") translate([0, 0, 20]) cylinder(h=2, r=2.5);
     color("gray") translate([-3, -1, 22]) cube([6, 2, 4]);
 }
+
+// ARFF station 
+module arff_station() {
+    width = 35; depth = 20; height = 8;
+    
+    color("firebrick") cube([width, depth, height]);
+    color("darkgray") {
+        for (x = [5 : 10 : 25]) {
+            translate([x, -0.5, 0]) cube([6, 1, 6]);
+        }
+    }
+}
+
+// VOR/DME Station
+module vor_dme() {
+    color("gray") cylinder(h=1, r=8);
+    color("white") translate([0, 0, 1]) cylinder(h=4, r1=1.5, r2=0.5);
+    color("white") translate([0, 0, 5]) sphere(r=0.5);
+}
+
+// Windsock
+module windsock() {
+    // visual circle
+    color("white") difference() {
+        cylinder(h=0.2, r=4);
+        translate([0,0,-0.1]) cylinder(h=0.4, r=3.5);
+    }
+    //pole
+    color("silver") cylinder(h=8, r=0.2);
+    //sock
+    color("orange") translate([0, 0, 7.5]) rotate([0, 90, 0]) cylinder(h=3, r1=0.6, r2=0.3);
+}
+
+// Cargo Terminal
+module cargo_terminal() {
+    // warehouse
+    color("slategray") cube([60, 40, 12]);
+    
+    // Truck loading docks 
+    color("darkgray") translate([5, -2, 0]) cube([50, 2, 4]);
+    
+    // cargo staging doors (airside)
+    color("gray") {
+        for(x = [10 : 15 : 40]) {
+            translate([x, 39.5, 0]) cube([8, 1, 6]);
+        }
+    }
+}
+
+// Deicing
+module deicing_facility() {
+    // Drive through gantry
+    color("goldenrod") {
+        translate([0, 0, 0]) cube([2, 2, 12]); // Left pillar
+        translate([20, 0, 0]) cube([2, 2, 12]); // Right pillar
+        translate([0, 0, 12]) cube([22, 2, 2]); // Crossbeam
+    }
+    // Type I and Type IV fluid storage tanks
+    color("darkgreen") {
+        translate([-6, 5, 0]) cylinder(h=6, r=2.5);
+        translate([-6, -2, 0]) cylinder(h=6, r=2.5);
+    }
+}
+
+
+// Layout
+
+translate([0, 0, 0]) public_terminal();
+translate([80, 0, 0]) hangar();
+translate([140, 0, 0]) cargo_terminal();
+
+translate([0, 60, 0]) atc_tower();
+translate([80, 60, 0]) arff_station();
+translate([140, 60, 0]) deicing_facility();
+
+translate([0, 120, 0]) radar_tower();
+translate([80, 120, 0]) vor_dme();
+translate([140, 120, 0]) windsock();
+
+translate([0, 180, 0]) fuel_tank();
+translate([30, 180, 0]) light_mast();
+translate([50, 180, 0]) light_mast();
+translate([80, 180, 0]) ils_array();
+translate([120, 180, 1]) papi_lights();
+
