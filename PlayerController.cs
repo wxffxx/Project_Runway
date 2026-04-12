@@ -72,10 +72,26 @@ public class PlayerController : MonoBehaviour
     public float fallDamageMaxSpeed = 25f;
     public float fallDamageMax = 50f;
 
+    [Header("Wall Run")]
+    public float wallRunSpeed = 8f;
+    public float wallRunGravity = -4f;
+    public float wallRunDuration = 1.2f;
+    public float wallRunDetectDistance = 0.65f;
+    public float wallJumpForce = 7f;
+    public float wallJumpSideForce = 5f;
+    public float wallRunTiltAngle = 15f;
+    public float wallRunFov = 75f;
+    public LayerMask wallRunLayers = ~0;
+
     [Header("Footstep")]
     public float footstepWalkInterval = 0.5f;
     public float footstepSprintMultiplier = 0.6f;
+
+    [Header("Events")]
     public UnityEvent onFootstep;
+    public UnityEvent onJump;
+    public UnityEvent onLand;
+    public UnityEvent onDeath;
 
     private CharacterController controller;
     private Camera cam;
@@ -115,6 +131,13 @@ public class PlayerController : MonoBehaviour
 
     private float footstepTimer;
 
+    // Wall run state
+    private bool isWallRunning;
+    private float wallRunTimer;
+    private Vector3 wallNormal;
+    private bool wallOnLeft;
+    private bool wallOnRight;
+
     /// <summary>Stamina as 0–1, useful for UI fill bars.</summary>
     public float StaminaNormalized => maxStamina > 0f ? stamina / maxStamina : 0f;
     /// <summary>Health as 0–1, useful for UI fill bars.</summary>
@@ -124,6 +147,7 @@ public class PlayerController : MonoBehaviour
     public bool IsCrouching => isCrouching;
     public bool IsSliding => isSliding;
     public bool IsDashing => isDashing;
+    public bool IsWallRunning => isWallRunning;
     public bool IsDead => health <= 0f;
 
     void OnValidate()
@@ -142,6 +166,7 @@ public class PlayerController : MonoBehaviour
         sprintRecoveryDelay = Mathf.Max(0f, sprintRecoveryDelay);
         jumpCutMultiplier = Mathf.Clamp01(jumpCutMultiplier);
         fovSprint = Mathf.Max(fovDefault, fovSprint);
+        wallRunFov = Mathf.Max(fovSprint, wallRunFov);
         bobAmplitude = Mathf.Max(0f, bobAmplitude);
         landingDipAmount = Mathf.Max(0f, landingDipAmount);
         maxJumpCount = Mathf.Max(1, maxJumpCount);
@@ -154,6 +179,8 @@ public class PlayerController : MonoBehaviour
         maxHealth = Mathf.Max(1f, maxHealth);
         fallDamageMaxSpeed = Mathf.Max(fallDamageMinSpeed, fallDamageMaxSpeed);
         footstepWalkInterval = Mathf.Max(0.1f, footstepWalkInterval);
+        wallRunDuration = Mathf.Max(0.1f, wallRunDuration);
+        wallRunDetectDistance = Mathf.Max(0.1f, wallRunDetectDistance);
     }
 
     void Start()
@@ -162,6 +189,7 @@ public class PlayerController : MonoBehaviour
         stamina = maxStamina;
         health = maxHealth;
         targetHeight = standHeight;
+        wallRunTimer = wallRunDuration;
         SyncControllerCenter(standHeight);
 
         if (cameraTransform == null && Camera.main != null)
@@ -196,6 +224,7 @@ public class PlayerController : MonoBehaviour
         HandleCrouch();
         HandleSlide();
         HandleDash();
+        HandleWallRun();
         HandleMovement();
         HandleJump();
         UpdateStamina();
@@ -223,7 +252,6 @@ public class PlayerController : MonoBehaviour
         wasGrounded = isGrounded;
         isGrounded = controller.isGrounded;
 
-        // Track peak fall speed for fall damage calculation
         if (!isGrounded && velocity.y < 0f)
             peakFallSpeed = Mathf.Max(peakFallSpeed, Mathf.Abs(velocity.y));
 
@@ -234,11 +262,13 @@ public class PlayerController : MonoBehaviour
                 float fallSpeed = Mathf.Abs(velocity.y);
                 landingDip = landingDipAmount * Mathf.Clamp(fallSpeed / 10f, 0.3f, 1f);
                 ApplyFallDamage(peakFallSpeed);
+                if (!IsDead) onLand?.Invoke();
                 peakFallSpeed = 0f;
                 jumpQueued = false;
                 jumpCount = 0;
             }
 
+            wallRunTimer = wallRunDuration;
             coyoteTimer = coyoteTime;
             if (velocity.y < 0f)
                 velocity.y = groundedGravity;
@@ -255,7 +285,9 @@ public class PlayerController : MonoBehaviour
 
         float t = Mathf.InverseLerp(fallDamageMinSpeed, fallDamageMaxSpeed, fallSpeed);
         float damage = t * fallDamageMax;
+        bool wasAlive = !IsDead;
         health = Mathf.Max(0f, health - damage);
+        if (wasAlive && IsDead) onDeath?.Invoke();
     }
 
     void HandleCrouch()
@@ -350,9 +382,49 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    void HandleWallRun()
+    {
+        // Detect walls on left and right
+        wallOnLeft = Physics.Raycast(transform.position, -transform.right, out RaycastHit hitLeft,
+            wallRunDetectDistance, wallRunLayers, QueryTriggerInteraction.Ignore);
+        wallOnRight = Physics.Raycast(transform.position, transform.right, out RaycastHit hitRight,
+            wallRunDetectDistance, wallRunLayers, QueryTriggerInteraction.Ignore);
+
+        wallNormal = wallOnLeft ? hitLeft.normal : (wallOnRight ? hitRight.normal : Vector3.up);
+
+        bool wallDetected = wallOnLeft || wallOnRight;
+        bool hasSpeed = GetCurrentHorizontalSpeed() > moveSpeed * 0.5f;
+        bool canStart = !isGrounded && wallDetected && hasSpeed && wallRunTimer > 0f
+                        && !isCrouching && !isDashing;
+
+        if (canStart && !isWallRunning)
+            isWallRunning = true;
+
+        if (!isWallRunning) return;
+
+        // Stop conditions
+        if (!wallDetected || isGrounded || wallRunTimer <= 0f)
+        {
+            isWallRunning = false;
+            return;
+        }
+
+        wallRunTimer -= Time.deltaTime;
+
+        // Move forward along the wall surface
+        Vector3 wallForward = Vector3.Cross(wallNormal, Vector3.up);
+        if (Vector3.Dot(wallForward, transform.forward) < 0f)
+            wallForward = -wallForward;
+
+        controller.Move(wallForward * wallRunSpeed * Time.deltaTime);
+
+        // Override vertical velocity to reduced wall gravity
+        velocity.y = Mathf.Max(velocity.y + gravity * Time.deltaTime, wallRunGravity);
+    }
+
     void HandleMovement()
     {
-        if (isSliding || isDashing) return;
+        if (isSliding || isDashing || isWallRunning) return;
 
         float moveX = Input.GetAxis("Horizontal");
         float moveZ = Input.GetAxis("Vertical");
@@ -378,6 +450,20 @@ public class PlayerController : MonoBehaviour
             jumpBufferTimer -= Time.deltaTime;
         }
 
+        // Wall jump — push away from wall and upward
+        if (jumpBufferTimer > 0f && isWallRunning)
+        {
+            isWallRunning = false;
+            wallRunTimer = 0f; // prevent immediately re-attaching
+            velocity.y = Mathf.Sqrt(wallJumpForce * -2f * gravity);
+            // Lateral push away from wall
+            Vector3 wallPush = wallNormal * wallJumpSideForce;
+            controller.Move(wallPush * Time.deltaTime);
+            jumpBufferTimer = 0f;
+            onJump?.Invoke();
+            return;
+        }
+
         bool canJump = (coyoteTimer > 0f || jumpCount < maxJumpCount) && !isCrouching && !isSliding && !isDashing;
 
         if (jumpBufferTimer > 0f && canJump)
@@ -388,6 +474,7 @@ public class PlayerController : MonoBehaviour
             jumpBufferTimer = 0f;
             coyoteTimer = 0f;
             jumpCount++;
+            onJump?.Invoke();
         }
 
         if (Input.GetButtonUp("Jump") && velocity.y > 0f)
@@ -396,7 +483,7 @@ public class PlayerController : MonoBehaviour
 
     void ApplyGravity()
     {
-        if (isDashing) return;
+        if (isDashing || isWallRunning) return;
 
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
@@ -406,20 +493,22 @@ public class PlayerController : MonoBehaviour
     {
         if (cameraTransform == null) return;
 
-        // --- Sprint / Slide / Dash FOV ---
+        // --- FOV ---
         if (cam != null)
         {
             bool isSprinting = !isCrouching && isGrounded && GetCurrentHorizontalSpeed() > moveSpeed + 0.5f;
-            float targetFov = isDashing ? fovSprint + slideFovBoost
-                            : isSliding ? fovSprint + slideFovBoost
-                            : isSprinting ? fovSprint
+            float targetFov = isWallRunning ? wallRunFov
+                            : isDashing     ? fovSprint + slideFovBoost
+                            : isSliding     ? fovSprint + slideFovBoost
+                            : isSprinting   ? fovSprint
                             : fovDefault;
             cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, fovTransitionSpeed * Time.deltaTime);
         }
 
-        // --- Camera Tilt (strafe lean) ---
+        // --- Camera Tilt (strafe lean + wall run lean) ---
         float strafeInput = Input.GetAxisRaw("Horizontal");
-        float targetTilt = -strafeInput * tiltAngle;
+        float wallRunTilt = isWallRunning ? (wallOnLeft ? wallRunTiltAngle : -wallRunTiltAngle) : 0f;
+        float targetTilt = isWallRunning ? wallRunTilt : -strafeInput * tiltAngle;
         currentTilt = Mathf.Lerp(currentTilt, targetTilt, tiltSpeed * Time.deltaTime);
 
         // --- Head Bob ---
@@ -441,7 +530,6 @@ public class PlayerController : MonoBehaviour
         // --- Landing Dip Recovery ---
         landingDip = Mathf.Lerp(landingDip, 0f, landingDipSpeed * Time.deltaTime);
 
-        // Apply combined vertical offset + tilt to camera local position/rotation
         Vector3 localPos = cameraTransform.localPosition;
         localPos.y = cameraBaseY + bobOffset - landingDip;
         cameraTransform.localPosition = localPos;
@@ -493,10 +581,13 @@ public class PlayerController : MonoBehaviour
 
     void UpdateStamina()
     {
+        // Directly check sprint conditions rather than comparing floating-point speeds
         bool isMoving = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
-        bool isSprinting = !isCrouching && isGrounded && isMoving && Mathf.Approximately(GetCurrentHorizontalSpeed(), sprintSpeed);
+        bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded && !isCrouching && isMoving && stamina > 0f;
+        if (sprintOnlyForward)
+            isTryingToSprint &= Input.GetAxisRaw("Vertical") > 0.1f;
 
-        if (isSprinting)
+        if (isTryingToSprint)
         {
             stamina = Mathf.Max(0f, stamina - staminaDrainPerSecond * Time.deltaTime);
             sprintRecoveryTimer = sprintRecoveryDelay;
@@ -531,7 +622,9 @@ public class PlayerController : MonoBehaviour
     /// <summary>Deal damage. Returns true if this caused death.</summary>
     public bool TakeDamage(float amount)
     {
+        bool wasAlive = !IsDead;
         health = Mathf.Max(0f, health - amount);
+        if (wasAlive && IsDead) onDeath?.Invoke();
         return IsDead;
     }
 }
