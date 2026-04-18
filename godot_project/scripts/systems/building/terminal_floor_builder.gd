@@ -3,6 +3,7 @@
 ## 增强版: 玻璃幕墙 / 多楼层可视化 / 结构柱 / 屋顶 / 自动机位接入点 / 全局注册
 ## 原始: TerminalFloorBuilder.cs (194 行) → 增强重写
 extends BaseBuilder
+class_name TerminalFloorBuilder
 
 static var instance: BaseBuilder = null
 
