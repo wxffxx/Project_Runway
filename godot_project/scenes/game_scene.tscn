@@ -1,4 +1,4 @@
-[gd_scene load_steps=30 format=3]
+[gd_scene load_steps=31 format=3]
 
 [ext_resource type="Script" path="res://scripts/core/camera/camera_movement.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/systems/building/runway_builder.gd" id="2"]
@@ -14,6 +14,7 @@
 [ext_resource type="Script" path="res://scripts/systems/ui/runway_menu_manager.gd" id="12"]
 [ext_resource type="Script" path="res://scripts/systems/ui/taxiway_menu_manager.gd" id="13"]
 [ext_resource type="Script" path="res://scripts/systems/ui/fps_counter.gd" id="14"]
+[ext_resource type="Script" path="res://scripts/systems/ui/terminal_menu_manager.gd" id="15"]
 
 ; --- 天空 & 环境 ---
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat_1"]
@@ -189,7 +190,7 @@ offset_right = 200.0
 offset_bottom = 80.0
 visible = false
 
-[node name="TerminalFloorBuilder" type="Node3D" parent="Builders" groups=["builders"]]
+[node name="TerminalFloorBuilder" type="Node3D" parent="Builders" groups=["builders", "terminal_builder"]]
 script = ExtResource("6")
 
 [node name="FloatingLabel" type="Label" parent="Builders/TerminalFloorBuilder"]
@@ -565,20 +566,19 @@ text = "Cat E (23m)"
 layout_mode = 2
 text = "Cat F (25m)"
 
-; 乘客区面板 (占位)
+; 乘客区面板 (航站楼建造)
 [node name="PassengerZonePanel" type="Control" parent="UILayer/InGameUI/BuildingMenuManager"]
 visible = false
 offset_top = 45.0
 offset_right = 1920.0
 offset_bottom = 200.0
 
-[node name="PlaceholderLabel" type="Label" parent="UILayer/InGameUI/BuildingMenuManager/PassengerZonePanel"]
+[node name="TerminalMenuManager" type="Control" parent="UILayer/InGameUI/BuildingMenuManager/PassengerZonePanel"]
 layout_mode = 1
-offset_left = 20.0
-offset_top = 10.0
-offset_right = 400.0
-offset_bottom = 40.0
-text = "Passenger Zone - Coming Soon"
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("15")
 
 ; 后勤区面板 (占位)
 [node name="LogisticsZonePanel" type="Control" parent="UILayer/InGameUI/BuildingMenuManager"]
