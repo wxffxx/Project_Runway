@@ -87,11 +87,21 @@ public class PlayerController : MonoBehaviour
     public float footstepWalkInterval = 0.5f;
     public float footstepSprintMultiplier = 0.6f;
 
+    [Header("Health Regeneration")]
+    public bool enableHealthRegen = false;
+    public float healthRegenRate = 5f;
+    public float healthRegenDelay = 5f;
+
+    [Header("Stamina Exhaustion")]
+    [Range(0f, 1f)] public float staminaExhaustionThreshold = 0.25f;
+
     [Header("Events")]
     public UnityEvent onFootstep;
     public UnityEvent onJump;
     public UnityEvent onLand;
     public UnityEvent onDeath;
+    public UnityEvent onDash;
+    public UnityEvent onSlide;
 
     private CharacterController controller;
     private Camera cam;
@@ -128,7 +138,9 @@ public class PlayerController : MonoBehaviour
 
     private float health;
     private float peakFallSpeed;
+    private float healthRegenTimer;
 
+    private bool isExhausted;
     private float footstepTimer;
 
     // Wall run state
@@ -149,6 +161,10 @@ public class PlayerController : MonoBehaviour
     public bool IsDashing => isDashing;
     public bool IsWallRunning => isWallRunning;
     public bool IsDead => health <= 0f;
+    public bool IsSprinting => !isCrouching && isGrounded && !isExhausted &&
+        Input.GetKey(KeyCode.LeftShift) && stamina > 0f &&
+        (!sprintOnlyForward || Input.GetAxisRaw("Vertical") > 0.1f);
+    public bool IsExhausted => isExhausted;
 
     void OnValidate()
     {
@@ -231,6 +247,7 @@ public class PlayerController : MonoBehaviour
         ApplyGravity();
         HandleCameraEffects();
         HandleFootsteps();
+        HandleHealthRegen();
     }
 
     void HandleMouseLook()
@@ -287,6 +304,7 @@ public class PlayerController : MonoBehaviour
         float damage = t * fallDamageMax;
         bool wasAlive = !IsDead;
         health = Mathf.Max(0f, health - damage);
+        healthRegenTimer = healthRegenDelay;
         if (wasAlive && IsDead) onDeath?.Invoke();
     }
 
@@ -337,6 +355,7 @@ public class PlayerController : MonoBehaviour
             isSliding = true;
             slideTimer = slideDuration;
             slideDirection = transform.forward;
+            onSlide?.Invoke();
         }
 
         if (isSliding)
@@ -370,6 +389,7 @@ public class PlayerController : MonoBehaviour
             stamina = Mathf.Max(0f, stamina - dashStaminaCost);
             dashCooldownTimer = dashCooldown;
             velocity.y = 0f;
+            onDash?.Invoke();
         }
 
         if (isDashing)
@@ -545,12 +565,12 @@ public class PlayerController : MonoBehaviour
 
         if (!isMovingOnGround)
         {
-            footstepTimer = 0f;
+            footstepTimer = footstepWalkInterval;
             return;
         }
 
-        float isSprinting = GetCurrentHorizontalSpeed() > moveSpeed + 0.5f ? footstepSprintMultiplier : 1f;
-        float interval = footstepWalkInterval * isSprinting;
+        float sprintMult = GetCurrentHorizontalSpeed() > moveSpeed + 0.5f ? footstepSprintMultiplier : 1f;
+        float interval = footstepWalkInterval * sprintMult;
 
         footstepTimer -= Time.deltaTime;
         if (footstepTimer <= 0f)
@@ -558,6 +578,15 @@ public class PlayerController : MonoBehaviour
             onFootstep?.Invoke();
             footstepTimer = interval;
         }
+    }
+
+    void HandleHealthRegen()
+    {
+        if (!enableHealthRegen || IsDead || health >= maxHealth) return;
+
+        healthRegenTimer -= Time.deltaTime;
+        if (healthRegenTimer <= 0f)
+            health = Mathf.Min(maxHealth, health + healthRegenRate * Time.deltaTime);
     }
 
     void SyncControllerCenter(float height)
@@ -572,7 +601,7 @@ public class PlayerController : MonoBehaviour
         if (isCrouching)
             return crouchSpeed;
 
-        bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded && stamina > 0f;
+        bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded && stamina > 0f && !isExhausted;
         if (sprintOnlyForward)
             isTryingToSprint &= moveZ > 0.1f;
 
@@ -581,9 +610,8 @@ public class PlayerController : MonoBehaviour
 
     void UpdateStamina()
     {
-        // Directly check sprint conditions rather than comparing floating-point speeds
         bool isMoving = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
-        bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded && !isCrouching && isMoving && stamina > 0f;
+        bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded && !isCrouching && isMoving && stamina > 0f && !isExhausted;
         if (sprintOnlyForward)
             isTryingToSprint &= Input.GetAxisRaw("Vertical") > 0.1f;
 
@@ -591,6 +619,8 @@ public class PlayerController : MonoBehaviour
         {
             stamina = Mathf.Max(0f, stamina - staminaDrainPerSecond * Time.deltaTime);
             sprintRecoveryTimer = sprintRecoveryDelay;
+            if (stamina <= 0f)
+                isExhausted = true;
             return;
         }
 
@@ -601,6 +631,9 @@ public class PlayerController : MonoBehaviour
         }
 
         stamina = Mathf.Min(maxStamina, stamina + staminaRecoveryPerSecond * Time.deltaTime);
+
+        if (isExhausted && stamina >= maxStamina * staminaExhaustionThreshold)
+            isExhausted = false;
     }
 
     float GetCurrentHorizontalSpeed()
@@ -624,6 +657,7 @@ public class PlayerController : MonoBehaviour
     {
         bool wasAlive = !IsDead;
         health = Mathf.Max(0f, health - amount);
+        healthRegenTimer = healthRegenDelay;
         if (wasAlive && IsDead) onDeath?.Invoke();
         return IsDead;
     }
