@@ -76,7 +76,7 @@ func _on_type_selected(type: int, default_floors: int) -> void:
 			_info_label.text = "⚠️ 系统错误：未找到航站楼建造器。"
 		return
 
-	var config := TerminalData.TYPE_CONFIG.get(type, {})
+	var config: Dictionary = TerminalData.TYPE_CONFIG.get(type, {})
 	var max_f: int = config.get("max_floors", 2)
 	var floors := mini(default_floors, max_f)
 

@@ -83,5 +83,5 @@ func get_config() -> Dictionary:
 
 
 func get_total_height() -> float:
-	var config := get_config()
+	var config: Dictionary = get_config()
 	return float(config["floor_height"]) * floor_count

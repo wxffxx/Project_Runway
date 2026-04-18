@@ -82,7 +82,7 @@ func start_building_terminal(type: int, floors: int) -> void:
 	current_floor_count = floors
 	current_state = BuildState.PLACING_START
 
-	var config := TerminalData.TYPE_CONFIG.get(type, {})
+	var config: Dictionary = TerminalData.TYPE_CONFIG.get(type, {})
 	var name_str: String = config.get("display_name", "航站楼")
 	tooltip = "建造%s (%d层)：点击确定第一个角点。\n【PageUp/Down】调整楼层数。按 ESC 取消。" % [name_str, floors]
 	tooltip_changed.emit(tooltip)
@@ -100,7 +100,7 @@ func _process(delta: float) -> void:
 	if current_state == BuildState.IDLE:
 		return
 
-	var config := TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
+	var config: Dictionary = TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
 	var max_f: int = config.get("max_floors", 3)
 
 	if Input.is_action_just_pressed("floor_up"):
@@ -114,7 +114,7 @@ func _process(delta: float) -> void:
 
 
 func _update_tooltip() -> void:
-	var config := TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
+	var config: Dictionary = TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
 	var name_str: String = config.get("display_name", "航站楼")
 	var fh: float = config.get("floor_height", 5.0)
 	var total_h := fh * current_floor_count
@@ -174,7 +174,7 @@ func _handle_placing_end() -> void:
 func _update_ghost(p1: Vector3, p2: Vector3) -> void:
 	if _ghost_floor == null:
 		return
-	var config := TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
+	var config: Dictionary = TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
 	var fh: float = config.get("floor_height", 5.0)
 	var total_h := fh * current_floor_count
 
@@ -196,7 +196,7 @@ func _update_ghost(p1: Vector3, p2: Vector3) -> void:
 func _finalize_terminal(p1: Vector3, p2: Vector3) -> void:
 	var min_pt := Vector3(minf(p1.x, p2.x), 0.0, minf(p1.z, p2.z))
 	var max_pt := Vector3(maxf(p1.x, p2.x), 0.0, maxf(p1.z, p2.z))
-	var config := TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
+	var config: Dictionary = TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
 	var fh: float = config.get("floor_height", 5.0)
 	var wall_t: float = config.get("wall_thickness", 0.4)
 	var glass_sides: bool = config.get("glass_sides", false)
@@ -357,7 +357,7 @@ func _build_roof(parent: Node3D, total_h: float, min_pt: Vector3, max_pt: Vector
 # ============================================================
 func _generate_gate_attachment_nodes(data: TerminalData, min_pt: Vector3, max_pt: Vector3,
 		width: float, _depth: float) -> void:
-	var config := data.get_config()
+	var config: Dictionary = data.get_config()
 	var gate_spacing: float = config.get("gate_spacing", 40.0)
 
 	# 机位接入点位于机坪侧外 5m (方便停机位 builders 吸附)
@@ -405,7 +405,7 @@ func _draw_terminal_tooltip(p1: Vector3, p2: Vector3) -> void:
 		return
 	var w := absf(p2.x - p1.x)
 	var d := absf(p2.z - p1.z)
-	var config := TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
+	var config: Dictionary = TerminalData.TYPE_CONFIG.get(current_terminal_type, {})
 	var name_str: String = config.get("display_name", "航站楼")
 	var fh: float = config.get("floor_height", 5.0)
 	var total_h := fh * current_floor_count

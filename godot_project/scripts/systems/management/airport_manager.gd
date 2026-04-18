@@ -29,7 +29,7 @@ func register_gate(gate: GateData) -> void:
 func register_terminal(terminal: TerminalData) -> void:
 	if terminal not in active_terminals:
 		active_terminals.append(terminal)
-		var config := terminal.get_config()
+		var config: Dictionary = terminal.get_config()
 		var display_name: String = config.get("display_name", "航站楼")
 		print("[AirportManager] %s %s 注册成功 (%.0fm×%.0fm, %d层, %d机位点)。当前航站楼总数: %d" % [
 			display_name, terminal.terminal_name,
