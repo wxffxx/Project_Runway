@@ -1,0 +1,25 @@
+newmtl chassis
+Kd 0.95 0.75 0.1
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl glass
+Kd 0.1 0.1 0.15
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl wheel
+Kd 0.2 0.2 0.2
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl hitch
+Kd 0.4 0.4 0.42
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl bumper
+Kd 0.1 0.1 0.1
+Ks 0.0 0.0 0.0
+Ns 0
+
