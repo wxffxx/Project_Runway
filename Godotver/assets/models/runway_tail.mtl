@@ -1,0 +1,35 @@
+newmtl asphalt
+Kd 0.15 0.15 0.15
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl stopway
+Kd 0.1 0.1 0.1
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl paint_white
+Kd 0.95 0.95 0.95
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl paint_yellow
+Kd 0.9 0.7 0.1
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl pole
+Kd 0.4 0.4 0.4
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl light_red
+Kd 1.0 0.1 0.1
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl light_white
+Kd 1.0 1.0 1.0
+Ks 0.0 0.0 0.0
+Ns 0
+
