@@ -1,0 +1,20 @@
+newmtl body
+Kd 0.95 0.95 0.95
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl stripe
+Kd 0.1 0.4 0.8
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl glass
+Kd 0.1 0.1 0.15
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl prop_wheel
+Kd 0.2 0.2 0.2
+Ks 0.0 0.0 0.0
+Ns 0
+
