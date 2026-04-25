@@ -1,0 +1,20 @@
+newmtl body_color
+Kd 0.9 0.2 0.2
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl body_second
+Kd 0.9 0.9 0.9
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl glass
+Kd 0.1 0.1 0.15
+Ks 0.0 0.0 0.0
+Ns 0
+
+newmtl rotor
+Kd 0.2 0.2 0.2
+Ks 0.0 0.0 0.0
+Ns 0
+

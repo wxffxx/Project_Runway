@@ -1,4 +1,4 @@
-mtllib plane.mtl
+mtllib small_airplane.mtl
 v -1.0 0.75 -4.0
 v 1.0 0.75 -4.0
 v 1.0 2.25 -4.0
