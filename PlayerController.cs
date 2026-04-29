@@ -4,21 +4,22 @@ using UnityEngine;
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement")]
-    public float moveSpeed = 6f;
-    public float sprintSpeed = 10f;
-    public float crouchSpeed = 3f;
+    public float moveSpeed = 5f;
+    public float sprintSpeed = 12f;
+    public float crouchSpeed = 2.5f;
+    public float sprintAcceleration = 10f;
     [Range(0f, 1f)] public float airControlPercent = 0.5f;
     public bool sprintOnlyForward = true;
 
     [Header("Sprint Stamina")]
-    public float maxStamina = 5f;
+    public float maxStamina = 8f;
     public float staminaDrainPerSecond = 1f;
     public float staminaRecoveryPerSecond = 0.75f;
     public float sprintRecoveryDelay = 0.75f;
 
     [Header("Jump")]
-    public float jumpForce = 8f;
-    public float gravity = -20f;
+    public float jumpForce = 7f;
+    public float gravity = -22f;
     public float coyoteTime = 0.15f;
     public float jumpBufferTime = 0.1f;
     public float groundedGravity = -2f;
@@ -30,7 +31,7 @@ public class PlayerController : MonoBehaviour
     public float crouchTransitionSpeed = 8f;
 
     [Header("Mouse Look")]
-    public float mouseSensitivity = 100f;
+    public float mouseSensitivity = 80f;
     public Transform cameraTransform;
 
     [Header("Camera FOV")]
@@ -44,7 +45,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("Head Bob")]
     public float bobFrequency = 2f;
-    public float bobAmplitude = 0.05f;
+    public float bobAmplitude = 0.07f;
 
     [Header("Landing")]
     public float landingDipAmount = 0.08f;
@@ -61,16 +62,17 @@ public class PlayerController : MonoBehaviour
 
     [Header("Dash")]
     public KeyCode dashKey = KeyCode.LeftAlt;
-    public float dashSpeed = 22f;
+    public float dashSpeed = 25f;
     public float dashDuration = 0.15f;
     public float dashCooldown = 1.5f;
     public float dashStaminaCost = 1f;
 
     [Header("Health & Fall Damage")]
-    public float maxHealth = 100f;
+    public float maxHealth = 150f;
     public float fallDamageMinSpeed = 10f;
     public float fallDamageMaxSpeed = 25f;
     public float fallDamageMax = 50f;
+    [Range(1f, 3f)] public float fallDamageExponent = 2f;
 
     [Header("Wall Run")]
     public float wallRunSpeed = 8f;
@@ -79,6 +81,7 @@ public class PlayerController : MonoBehaviour
     public float wallRunDetectDistance = 0.65f;
     public float wallJumpForce = 7f;
     public float wallJumpSideForce = 5f;
+    public float wallJumpCooldown = 0.4f;
     public float wallRunTiltAngle = 15f;
     public float wallRunFov = 75f;
     public LayerMask wallRunLayers = ~0;
@@ -94,6 +97,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("Stamina Exhaustion")]
     [Range(0f, 1f)] public float staminaExhaustionThreshold = 0.25f;
+    [Range(0f, 1f)] public float exhaustionSpeedMultiplier = 0.65f;
 
     [Header("Events")]
     public UnityEvent onFootstep;
@@ -142,6 +146,7 @@ public class PlayerController : MonoBehaviour
 
     private bool isExhausted;
     private float footstepTimer;
+    private float smoothedSpeed;
 
     // Wall run state
     private bool isWallRunning;
@@ -149,6 +154,7 @@ public class PlayerController : MonoBehaviour
     private Vector3 wallNormal;
     private bool wallOnLeft;
     private bool wallOnRight;
+    private float wallJumpCooldownTimer;
 
     /// <summary>Stamina as 0–1, useful for UI fill bars.</summary>
     public float StaminaNormalized => maxStamina > 0f ? stamina / maxStamina : 0f;
@@ -301,7 +307,7 @@ public class PlayerController : MonoBehaviour
         if (fallSpeed <= fallDamageMinSpeed) return;
 
         float t = Mathf.InverseLerp(fallDamageMinSpeed, fallDamageMaxSpeed, fallSpeed);
-        float damage = t * fallDamageMax;
+        float damage = Mathf.Pow(t, fallDamageExponent) * fallDamageMax;
         bool wasAlive = !IsDead;
         health = Mathf.Max(0f, health - damage);
         healthRegenTimer = healthRegenDelay;
@@ -360,6 +366,18 @@ public class PlayerController : MonoBehaviour
 
         if (isSliding)
         {
+            // Jump out of slide with a forward boost
+            if (jumpBufferTimer > 0f)
+            {
+                isSliding = false;
+                velocity.y = Mathf.Sqrt(jumpForce * -2f * gravity);
+                controller.Move(slideDirection * (slideSpeed * 0.4f * Time.deltaTime));
+                jumpBufferTimer = 0f;
+                jumpCount++;
+                onJump?.Invoke();
+                return;
+            }
+
             slideTimer -= Time.deltaTime;
             float t = slideTimer / slideDuration;
             controller.Move(slideDirection * (slideSpeed * t * Time.deltaTime));
@@ -451,11 +469,12 @@ public class PlayerController : MonoBehaviour
         Vector3 inputDirection = new Vector3(moveX, 0f, moveZ);
         inputDirection = Vector3.ClampMagnitude(inputDirection, 1f);
 
-        float currentSpeed = GetCurrentSpeed(moveZ);
+        float targetSpeed = GetCurrentSpeed(moveZ);
+        smoothedSpeed = Mathf.Lerp(smoothedSpeed, targetSpeed, sprintAcceleration * Time.deltaTime);
         float controlPercent = isGrounded ? 1f : airControlPercent;
 
         Vector3 move = transform.right * inputDirection.x + transform.forward * inputDirection.z;
-        controller.Move(move * (currentSpeed * controlPercent * Time.deltaTime));
+        controller.Move(move * (smoothedSpeed * controlPercent * Time.deltaTime));
     }
 
     void HandleJump()
@@ -470,16 +489,19 @@ public class PlayerController : MonoBehaviour
             jumpBufferTimer -= Time.deltaTime;
         }
 
+        if (wallJumpCooldownTimer > 0f)
+            wallJumpCooldownTimer -= Time.deltaTime;
+
         // Wall jump — push away from wall and upward
-        if (jumpBufferTimer > 0f && isWallRunning)
+        if (jumpBufferTimer > 0f && isWallRunning && wallJumpCooldownTimer <= 0f)
         {
             isWallRunning = false;
-            wallRunTimer = 0f; // prevent immediately re-attaching
+            wallRunTimer = 0f;
             velocity.y = Mathf.Sqrt(wallJumpForce * -2f * gravity);
-            // Lateral push away from wall
             Vector3 wallPush = wallNormal * wallJumpSideForce;
             controller.Move(wallPush * Time.deltaTime);
             jumpBufferTimer = 0f;
+            wallJumpCooldownTimer = wallJumpCooldown;
             onJump?.Invoke();
             return;
         }
@@ -600,6 +622,9 @@ public class PlayerController : MonoBehaviour
     {
         if (isCrouching)
             return crouchSpeed;
+
+        if (isExhausted)
+            return moveSpeed * exhaustionSpeedMultiplier;
 
         bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded && stamina > 0f && !isExhausted;
         if (sprintOnlyForward)
