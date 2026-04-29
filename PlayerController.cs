@@ -147,6 +147,9 @@ public class PlayerController : MonoBehaviour
     private bool isExhausted;
     private float footstepTimer;
     private float smoothedSpeed;
+    private float horizontalSpeed;
+    private float rawInputX;
+    private float rawInputZ;
 
     // Wall run state
     private bool isWallRunning;
@@ -240,6 +243,10 @@ public class PlayerController : MonoBehaviour
 
         if (Input.GetButtonDown("Jump"))
             jumpQueued = true;
+
+        rawInputX = Input.GetAxisRaw("Horizontal");
+        rawInputZ = Input.GetAxisRaw("Vertical");
+        horizontalSpeed = GetCurrentHorizontalSpeed();
 
         HandleMouseLook();
         HandleGroundCheck();
@@ -356,7 +363,7 @@ public class PlayerController : MonoBehaviour
         bool sprintInput = Input.GetKey(KeyCode.LeftShift) && isGrounded && stamina > 0f;
         bool crouchInput = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.C);
 
-        if (!isSliding && sprintInput && crouchInput && GetCurrentHorizontalSpeed() > moveSpeed + 0.5f)
+        if (!isSliding && sprintInput && crouchInput && horizontalSpeed > moveSpeed + 0.5f)
         {
             isSliding = true;
             slideTimer = slideDuration;
@@ -422,6 +429,12 @@ public class PlayerController : MonoBehaviour
 
     void HandleWallRun()
     {
+        if (isGrounded && !isWallRunning)
+        {
+            wallOnLeft = wallOnRight = false;
+            return;
+        }
+
         // Detect walls on left and right
         wallOnLeft = Physics.Raycast(transform.position, -transform.right, out RaycastHit hitLeft,
             wallRunDetectDistance, wallRunLayers, QueryTriggerInteraction.Ignore);
@@ -431,7 +444,7 @@ public class PlayerController : MonoBehaviour
         wallNormal = wallOnLeft ? hitLeft.normal : (wallOnRight ? hitRight.normal : Vector3.up);
 
         bool wallDetected = wallOnLeft || wallOnRight;
-        bool hasSpeed = GetCurrentHorizontalSpeed() > moveSpeed * 0.5f;
+        bool hasSpeed = horizontalSpeed > moveSpeed * 0.5f;
         bool canStart = !isGrounded && wallDetected && hasSpeed && wallRunTimer > 0f
                         && !isCrouching && !isDashing;
 
@@ -538,7 +551,7 @@ public class PlayerController : MonoBehaviour
         // --- FOV ---
         if (cam != null)
         {
-            bool isSprinting = !isCrouching && isGrounded && GetCurrentHorizontalSpeed() > moveSpeed + 0.5f;
+            bool isSprinting = !isCrouching && isGrounded && horizontalSpeed > moveSpeed + 0.5f;
             float targetFov = isWallRunning ? wallRunFov
                             : isDashing     ? fovSprint + slideFovBoost
                             : isSliding     ? fovSprint + slideFovBoost
@@ -548,18 +561,18 @@ public class PlayerController : MonoBehaviour
         }
 
         // --- Camera Tilt (strafe lean + wall run lean) ---
-        float strafeInput = Input.GetAxisRaw("Horizontal");
+        float strafeInput = rawInputX;
         float wallRunTilt = isWallRunning ? (wallOnLeft ? wallRunTiltAngle : -wallRunTiltAngle) : 0f;
         float targetTilt = isWallRunning ? wallRunTilt : -strafeInput * tiltAngle;
         currentTilt = Mathf.Lerp(currentTilt, targetTilt, tiltSpeed * Time.deltaTime);
 
         // --- Head Bob ---
         bool isMovingOnGround = isGrounded &&
-            new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
+            (rawInputX * rawInputX + rawInputZ * rawInputZ) > 0.01f;
 
         if (isMovingOnGround && !isSliding && !isDashing)
         {
-            float speedRatio = GetCurrentHorizontalSpeed() / moveSpeed;
+            float speedRatio = horizontalSpeed / moveSpeed;
             bobTimer += Time.deltaTime * bobFrequency * speedRatio;
             bobOffset = Mathf.Sin(bobTimer * 2f * Mathf.PI) * bobAmplitude;
         }
@@ -583,7 +596,7 @@ public class PlayerController : MonoBehaviour
     void HandleFootsteps()
     {
         bool isMovingOnGround = isGrounded && !isSliding && !isDashing &&
-            new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
+            (rawInputX * rawInputX + rawInputZ * rawInputZ) > 0.01f;
 
         if (!isMovingOnGround)
         {
@@ -591,7 +604,7 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        float sprintMult = GetCurrentHorizontalSpeed() > moveSpeed + 0.5f ? footstepSprintMultiplier : 1f;
+        float sprintMult = horizontalSpeed > moveSpeed + 0.5f ? footstepSprintMultiplier : 1f;
         float interval = footstepWalkInterval * sprintMult;
 
         footstepTimer -= Time.deltaTime;
@@ -635,10 +648,10 @@ public class PlayerController : MonoBehaviour
 
     void UpdateStamina()
     {
-        bool isMoving = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).sqrMagnitude > 0.01f;
+        bool isMoving = (rawInputX * rawInputX + rawInputZ * rawInputZ) > 0.01f;
         bool isTryingToSprint = Input.GetKey(KeyCode.LeftShift) && isGrounded && !isCrouching && isMoving && stamina > 0f && !isExhausted;
         if (sprintOnlyForward)
-            isTryingToSprint &= Input.GetAxisRaw("Vertical") > 0.1f;
+            isTryingToSprint &= rawInputZ > 0.1f;
 
         if (isTryingToSprint)
         {
